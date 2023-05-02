@@ -483,8 +483,8 @@ class ApprovalSerializer(serializers.ModelSerializer):
         if type(obj.child_obj) == AuthorisedUserPermit:
             for moa in obj.mooringonapproval_set.filter(end_date__isnull=True):
                 #import ipdb; ipdb.set_trace()
-                if moa.mooring.mooring_licence is not None:
-                    licence_holder_data = UserSerializer(moa.mooring.mooring_licence.submitter).data
+                if moa.mooring.mooring_licence is not None or moa.approval.migrated:
+                    licence_holder_data = UserSerializer(moa.mooring.mooring_licence.submitter).data if moa.mooring.mooring_licence else ''
                     moorings.append({
                         "id": moa.id,
                         "mooring_name": moa.mooring.name,
@@ -500,7 +500,9 @@ class ApprovalSerializer(serializers.ModelSerializer):
         links = ''
         request = self.context.get('request')
         if type(obj.child_obj) == AuthorisedUserPermit:
-            for moa in obj.mooringonapproval_set.filter(mooring__mooring_licence__status='current'):
+            #import ipdb; ipdb.set_trace()
+            #for moa in obj.mooringonapproval_set.filter(mooring__mooring_licence__status='current'):
+            for moa in obj.mooringonapproval_set.filter(Q(mooring__mooring_licence__status='current') | Q(approval__migrated=True)):
                 if request and request.GET.get('is_internal') and request.GET.get('is_internal') == 'true':
                     links += '<a href="/internal/moorings/{}">{}</a><br/>'.format(
                             moa.mooring.id,

@@ -145,6 +145,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_postal_address(self, obj):
         address = {}
+        #import ipdb; ipdb.set_trace()
         if obj.postal_address:
             address = UserAddressSerializer(obj.postal_address).data
         return address
