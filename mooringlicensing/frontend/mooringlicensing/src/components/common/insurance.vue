@@ -68,7 +68,7 @@ from '@/utils/hooks'
                     url = helpers.add_endpoint_join(
                         //'/api/proposal/',
                         api_endpoints.proposal,
-                        this.proposal.id + '/process_insurance_certificate_document/'
+                        this.proposal.id + '/process_insurance_certificate_document/?uuid=' + this.proposal.uuid
                     )
                 }
                 return url;

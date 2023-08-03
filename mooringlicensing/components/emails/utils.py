@@ -21,10 +21,7 @@ def make_url_for_internal(url):
         else:
             url = url.replace('.dbca.wa.gov.au', '-internal.dbca.wa.gov.au')
 
-    # For seg-dev environment
-    if '-ria-seg-dev' not in url:
-        url = url.replace('-seg-dev', '-ria-seg-dev')
-        url = url.replace('-internal', '-internal-oim01')
+    url = url.replace('-internal.dbca', '-internal-oim01.dbca')
 
     url = make_http_https(url)
     return url

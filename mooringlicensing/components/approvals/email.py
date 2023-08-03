@@ -1,4 +1,5 @@
 import logging
+import ledger_api_client
 import mimetypes
 import requests
 from dateutil.relativedelta import relativedelta
@@ -13,7 +14,7 @@ from datetime import timedelta
 from mooringlicensing import settings
 from mooringlicensing.components.emails.emails import TemplateEmailBase, _extract_email_headers
 # from ledger.accounts.models import EmailUser
-from ledger_api_client.ledger_models import EmailUserRO as EmailUser
+from ledger_api_client.ledger_models import EmailUserRO as EmailUser, EmailUserRO
 from mooringlicensing.components.emails.utils import get_user_as_email_user, get_public_url, make_http_https
 from mooringlicensing.components.users.models import EmailUserLogEntry
 # from mooringlicensing.components.main.utils import _log_user_email
@@ -22,7 +23,6 @@ from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 
 from mooringlicensing.components.users.utils import _log_user_email
-from mooringlicensing.ledger_api_utils import get_invoice_url
 
 logger = logging.getLogger(__name__)
 SYSTEM_NAME = settings.SYSTEM_NAME_SHORT + ' Automated Message'
@@ -75,44 +75,44 @@ class AuthorisedUserMooringRemovedNotificationEmail(TemplateEmailBase):
         self.subject = '{} - {} expired.'.format(settings.RIA_NAME, approval.child_obj.description)
 
 
-def send_auth_user_no_moorings_notification(approval):
-    email = AuthorisedUserNoMooringsNotificationEmail(approval)
-    proposal = approval.current_proposal
-
-    url=settings.SITE_URL if settings.SITE_URL else ''
-    url += reverse('external')
-
-    if "-internal" in url:
-        # remove '-internal'. This email is for external submitters
-        url = ''.join(url.split('-internal'))
-
-    context = {
-        'recipient': approval.submitter_obj,
-        'public_url': get_public_url(),
-        'approval': approval,
-        'proposal': proposal,
-        'url': make_http_https(url),
-    }
-    all_ccs = []
-    if proposal.org_applicant and proposal.org_applicant.email:
-        cc_list = proposal.org_applicant.email
-        if cc_list:
-            all_ccs = [cc_list]
-    msg = email.send(proposal.submitter_obj.email, cc=all_ccs, context=context)
-    if msg:
-        sender = settings.DEFAULT_FROM_EMAIL
-        try:
-            sender_user = EmailUser.objects.get(email__icontains=sender)
-        except:
-            EmailUser.objects.create(email=sender, password='')
-            sender_user = EmailUser.objects.get(email__icontains=sender)
-
-        _log_approval_email(msg, approval, sender=sender_user)
-        #_log_org_email(msg, approval.applicant, proposal.submitter, sender=sender_user)
-        if approval.org_applicant:
-            _log_org_email(msg, approval.org_applicant, proposal.submitter_obj, sender=sender_user)
-        else:
-            _log_user_email(msg, approval.submitter_obj, proposal.submitter_obj, sender=sender_user)
+# def send_auth_user_no_moorings_notification(approval):
+#     email = AuthorisedUserNoMooringsNotificationEmail(approval)
+#     proposal = approval.current_proposal
+#
+#     url=settings.SITE_URL if settings.SITE_URL else ''
+#     url += reverse('external')
+#
+#     if "-internal" in url:
+#         # remove '-internal'. This email is for external submitters
+#         url = ''.join(url.split('-internal'))
+#
+#     context = {
+#         'recipient': approval.submitter_obj,
+#         'public_url': get_public_url(),
+#         'approval': approval,
+#         'proposal': proposal,
+#         'url': make_http_https(url),
+#     }
+#     all_ccs = []
+#     if proposal.org_applicant and proposal.org_applicant.email:
+#         cc_list = proposal.org_applicant.email
+#         if cc_list:
+#             all_ccs = [cc_list]
+#     msg = email.send(proposal.submitter_obj.email, cc=all_ccs, context=context)
+#     if msg:
+#         sender = settings.DEFAULT_FROM_EMAIL
+#         try:
+#             sender_user = EmailUser.objects.get(email__icontains=sender)
+#         except:
+#             EmailUser.objects.create(email=sender, password='')
+#             sender_user = EmailUser.objects.get(email__icontains=sender)
+#
+#         _log_approval_email(msg, approval, sender=sender_user)
+#         #_log_org_email(msg, approval.applicant, proposal.submitter, sender=sender_user)
+#         if approval.org_applicant:
+#             _log_org_email(msg, approval.org_applicant, proposal.submitter_obj, sender=sender_user)
+#         else:
+#             _log_user_email(msg, approval.submitter_obj, proposal.submitter_obj, sender=sender_user)
 
 
 def send_auth_user_mooring_removed_notification(approval, mooring_licence):
@@ -472,7 +472,10 @@ def send_dcv_permit_mail(dcv_permit, invoice, request):
     # attach invoice
     # contents = create_invoice_pdf_bytes('invoice.pdf', invoice,)
     # attachments.append(('invoice#{}.pdf'.format(invoice.reference), contents, 'application/pdf'))
-    url = get_invoice_url(invoice.reference, request)
+    # url = get_invoice_url(invoice.reference, request)
+    # invoice_pdf = requests.get(url=url)
+    api_key = settings.LEDGER_API_KEY
+    url = settings.LEDGER_API_URL+'/ledgergw/invoice-pdf/'+api_key+'/' + invoice.reference
     invoice_pdf = requests.get(url=url)
     if invoice_pdf.status_code == 200:
         attachment = (f'invoice#{invoice.reference}', invoice_pdf.content, 'application/pdf')
@@ -490,8 +493,12 @@ def send_dcv_permit_mail(dcv_permit, invoice, request):
     bcc = []
 
     # Update bcc if
-    dcv_group = Group.objects.get(name=settings.GROUP_DCV_PERMIT_ADMIN)
-    users = dcv_group.user_set.all()
+    # dcv_group = Group.objects.get(name=settings.GROUP_DCV_PERMIT_ADMIN)
+    # users = dcv_group.user_set.all()
+    dcv_group = ledger_api_client.managed_models.SystemGroup.objects.get(name="Mooring Licensing - DCV Permit Admin")
+    ids = dcv_group.get_system_group_member_ids()
+    users = EmailUserRO.objects.filter(id__in=ids)
+
     if users:
         bcc = [user.email for user in users]
 
@@ -532,7 +539,10 @@ def send_dcv_admission_mail(dcv_admission, invoice, request):
     if invoice:
         # contents = create_invoice_pdf_bytes('invoice.pdf', invoice,)
         # attachments.append(('invoice#{}.pdf'.format(invoice.reference), contents, 'application/pdf'))
-        url = get_invoice_url(invoice.reference, request)
+        # url = get_invoice_url(invoice.reference, request)
+        # invoice_pdf = requests.get(url=url)
+        api_key = settings.LEDGER_API_KEY
+        url = settings.LEDGER_API_URL+'/ledgergw/invoice-pdf/'+api_key+'/' + invoice.reference
         invoice_pdf = requests.get(url=url)
         if invoice_pdf.status_code == 200:
             attachment = (f'invoice#{invoice.reference}', invoice_pdf.content, 'application/pdf')
@@ -655,16 +665,21 @@ def send_approval_suspend_email_notification(approval, request=None):
             _log_user_email(msg, approval.submitter_obj, proposal.submitter_obj, sender=sender_user)
 
 
-def send_approval_surrender_email_notification(approval, request=None):
+def send_approval_surrender_email_notification(approval, request=None, already_surrendered=True):
     # 30 Surrendered
     # email to licence/permit holder when licence/permit is surrendered
-    email = TemplateEmailBase(
-        subject='Surrendered: Rottnest Island {} {} - Effective {}'.format(approval.description, approval.lodgement_number, approval.surrender_details['surrender_date']),
-        # html_template='mooringlicensing/emails/approval_surrender_notification.html',
-        # txt_template='mooringlicensing/emails/approval_surrender_notification.txt',
-        html_template='mooringlicensing/emails_2/email_30.html',
-        txt_template='mooringlicensing/emails_2/email_30.txt',
-    )
+    if already_surrendered:
+        email = TemplateEmailBase(
+            subject='Surrendered: Rottnest Island {} {} - Effective {}'.format(approval.description, approval.lodgement_number, approval.surrender_details['surrender_date']),
+            html_template='mooringlicensing/emails_2/email_30.html',
+            txt_template='mooringlicensing/emails_2/email_30.txt',
+        )
+    else:
+        email = TemplateEmailBase(
+            subject='Surrendered: Rottnest Island {} {} - Effective {}'.format(approval.description, approval.lodgement_number, approval.surrender_details['surrender_date']),
+            html_template='mooringlicensing/emails_2/email_30_future.html',
+            txt_template='mooringlicensing/emails_2/email_30_future.txt',
+        )
     proposal = approval.current_proposal
 
     if request and 'test-emails' in request.path_info:
@@ -692,7 +707,10 @@ def send_approval_surrender_email_notification(approval, request=None):
         cc_list = proposal.org_applicant.email
         if cc_list:
             all_ccs = [cc_list]
-    msg = email.send(proposal.submitter_obj.email, cc=all_ccs, context=context)
+
+    bccs = proposal.assessor_recipients
+
+    msg = email.send(proposal.submitter_obj.email, cc=all_ccs, context=context, bcc=bccs)
     if msg:
         sender = settings.DEFAULT_FROM_EMAIL
         _log_approval_email(msg, approval, sender=sender_user)

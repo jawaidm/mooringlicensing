@@ -39,6 +39,7 @@ class ExternalView(LoginRequiredMixin, TemplateView):
     template_name = 'mooringlicensing/dash/index.html'
 
     def get_context_data(self, **kwargs):
+        logger.info(f'Getting context in the ExternalView...')
         context = super(ExternalView, self).get_context_data(**kwargs)
         context['dev'] = settings.DEV_STATIC
         context['dev_url'] = settings.DEV_STATIC_URL

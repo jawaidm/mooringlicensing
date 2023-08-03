@@ -103,6 +103,10 @@ from '@/utils/hooks'
               type: Boolean,
               default: false
             },
+            add_vessel: {
+                type: Boolean,
+                default: false,
+            },
         },
         computed: {
             vesselExists: function() {

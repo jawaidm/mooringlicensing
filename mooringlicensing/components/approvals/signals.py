@@ -14,7 +14,7 @@ class StickerListener(object):
     @staticmethod
     @receiver(post_save, sender=Sticker)
     def _post_save(sender, instance, **kwargs):
-        logger.info(f'StickerListener._post_save() method is called by the sticker: {instance}.')
+        logger.info(f'Post saving process for the sticker: [{instance}]...')
 
         sticker_saved = instance
         if sticker_saved.status == Sticker.STICKER_STATUS_CURRENT:
@@ -32,7 +32,7 @@ class StickerListener(object):
                     # When a sticker gets 'current' status and there are no stickers with being-printed statuses, update related proposal.status
                     sticker_saved.proposal_initiated.processing_status = Proposal.PROCESSING_STATUS_APPROVED
                     sticker_saved.proposal_initiated.save()
-                    logger.info(f'Status: {Proposal.PROCESSING_STATUS_APPROVED} has been set to the proposal: [{sticker_saved.proposal_initiated}]')
+                    logger.info(f'Status: [{Proposal.PROCESSING_STATUS_APPROVED}] has been set to the proposal: [{sticker_saved.proposal_initiated}]')
                 else:
                     logger.info(f'Proposal: [{sticker_saved.proposal_initiated}] still has sticker(s) being printed.')
         elif sticker_saved.status in [Sticker.STICKER_STATUS_LOST, Sticker.STICKER_STATUS_RETURNED,]:
@@ -40,18 +40,23 @@ class StickerListener(object):
             proposals_initiated = []
 
             if stickers_to_be_returned:
+                logger.info(f'There is still at least one sticker with the status: [{Sticker.STICKER_STATUS_TO_BE_RETURNED}] for the approval: [{sticker_saved.approval}].')
                 # There is still a sticker to be returned
                 # Ensure the current proposal with 'sticker_to_be_returned'. It probably has the status, though.
                 sticker_saved.approval.current_proposal.processing_status = Proposal.PROCESSING_STATUS_STICKER_TO_BE_RETURNED
                 sticker_saved.approval.current_proposal.save()
                 logger.info(f'Proposal: [{sticker_saved.approval.current_proposal}] still has sticker(s) to be returned.')
             else:
+                logger.info(f'There are no sticker with the status: [{Sticker.STICKER_STATUS_TO_BE_RETURNED}] left for the approval: [{sticker_saved.approval}].')
                 # There are no stickers to be returned
+                # Therefore if there is a sticker with not_ready_yet status, that sticker gets ready status to be picked up by the cron job.
                 stickers_not_ready_yet = sticker_saved.approval.stickers.filter(status=Sticker.STICKER_STATUS_NOT_READY_YET)
                 for sticker in stickers_not_ready_yet:
                     # change 'Not ready yet' stickers to 'Ready' so that it is picked up by cron for exporting.
                     sticker.status = Sticker.STICKER_STATUS_READY
                     sticker.save()  # This could make infinite loop
+                    logger.info(f'Status: [{Sticker.STICKER_STATUS_READY}] has been set to the Sticker: [{sticker}]')
+
                     proposals_initiated.append(sticker.proposal_initiated)
                     proposals_initiated = list(set(proposals_initiated))
 
@@ -84,7 +89,7 @@ class StickerListener(object):
                             # this proposal should get the status 'Printing Sticker'
                             proposal.processing_status = Proposal.PROCESSING_STATUS_PRINTING_STICKER
                             proposal.save()
-                            logger.info(f'Status: {Proposal.PROCESSING_STATUS_PRINTING_STICKER} has been set to the proposal: [{proposal}]')
+                            logger.info(f'Status: [{Proposal.PROCESSING_STATUS_PRINTING_STICKER}] has been set to the proposal: [{proposal}]')
 
         # Update the latest approval history for the approval this sticker is for
         latest_approval_history = ApprovalHistory.objects.filter(approval=sticker_saved.approval, end_date__isnull=True).order_by('-start_date')

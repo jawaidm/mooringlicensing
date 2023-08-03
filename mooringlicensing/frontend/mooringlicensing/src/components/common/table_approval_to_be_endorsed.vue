@@ -86,7 +86,8 @@ export default {
                         d.filter_by_endorsement = vm.filter_by_endorsement
                     }
                 },
-                dom: 'lBfrtip',
+                // dom: 'lBfrtip',
+                dom: 'lBfrtp',
                 buttons: buttons,
                 columns: [
                     {
@@ -152,7 +153,8 @@ export default {
                         'render': function(row, type, full){
                             //return 'View<br />Endorse<br />Decline'
                             let links = '';
-                            links +=  `<a href='/external/proposal/${full.id}/'>View</a><br/>`;
+                            // links +=  `<a href='/aua_for_endorsement/${full.uuid}/view/'>View</a><br/>`;
+                            links +=  `<a href='/external/proposal/${full.uuid}/'>View</a><br/>`;
                             if(full.customer_status === constants.AWAITING_ENDORSEMENT){
                                 links +=  `<a href='/aua_for_endorsement/${full.uuid}/endorse/'>Endorse</a><br/>`;
                                 links +=  `<a href='/aua_for_endorsement/${full.uuid}/decline/'>Decline</a><br/>`;

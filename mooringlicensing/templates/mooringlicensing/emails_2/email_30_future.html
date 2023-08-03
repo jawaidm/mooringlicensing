@@ -1,0 +1,9 @@
+{% extends 'mooringlicensing/emails/base_email-rottnest.html' %}
+
+{% block content_body %}
+{% include "mooringlicensing/emails_2/salutation.html" %}
+<p>Your {{ approval.description }} {{ approval.lodgement_number }} will be surrendered as per {{ surrender_date }}.</p>
+{% if details %}<p>Details: {{ details }}</p>{% endif %}
+{% include "mooringlicensing/emails/signature-rottnest.html" %}
+{% endblock %}
+

@@ -117,7 +117,7 @@ export default {
                 return []
             }
             if (this.is_internal){
-                return ['id', 'Number', 'Permit or Licence', 'Date sent / printed / mailed', 'Status', 'Season', 'Invoice', 'Action']
+                return ['id', 'Number', 'Permit or Licence', 'Vessel rego', 'Date sent / printed / mailed', 'Status', 'Season', 'Invoice', 'Action']
             }
         },
         column_id: function(){
@@ -130,6 +130,19 @@ export default {
                 'render': function(row, type, full){
                     return full.id
                 }
+            }
+        },
+        column_vessel_rego_no: function(){
+            return {
+                // 2. Number
+                data: "vessel_rego_no",
+                orderable: true,
+                searchable: false,
+                visible: true,
+                'render': function(row, type, full){
+                    return full.vessel_rego_no
+                },
+                name: 'vessel_rego_number',
             }
         },
         column_number: function(){
@@ -284,6 +297,7 @@ export default {
                     vm.column_id,
                     vm.column_number,
                     vm.column_permit_or_licence,
+                    vm.column_vessel_rego_no,
                     vm.column_printing_company,
                     vm.column_status,
                     vm.column_year,

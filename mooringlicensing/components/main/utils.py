@@ -257,7 +257,7 @@ def sticker_export():
                 'Sticker Number',
                 'Vessel Registration Number',
                 'Moorings',
-                'Colour',
+                'Length Colour',
                 'White info',
             ])
             for sticker in stickers:

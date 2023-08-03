@@ -17,15 +17,15 @@
                                     <div class="col-sm-3">
                                         <label class="control-label pull-left"  for="Name">Requirement</label>
                                     </div>
-                                    <div class="col-sm-9" v-if="requirement.standard">
+                                    <div class="col-sm-9" v-show="requirement.standard">
                                         <!--div style="width:70% !important"-->
                                         <div>
                                             <select class="form-control" ref="standard_req" name="standard_requirement" v-model="requirement.standard_requirement" style="width:70%">
-                                                <option v-for="r in requirements" :value="r.id">{{r.code}} {{r.text}}</option>
+                                                <option v-for="r in requirements" :value="r.id">{{r.code}}: {{r.text}}</option>
                                             </select>
                                         </div>
                                     </div>
-                                    <div class="col-sm-9" v-else>
+                                    <div class="col-sm-9" v-show="!requirement.standard">
                                         <textarea style="width: 70%;" class="form-control" name="free_requirement" v-model="requirement.free_requirement"></textarea>
                                     </div>
                                 </div>
@@ -341,10 +341,11 @@ export default {
              });
 
             // Intialise select2
+            // $(vm.$refs.standard_req).select2()
             $(vm.$refs.standard_req).select2({
                 "theme": "bootstrap",
                 allowClear: true,
-                minimumInputLength: 2,
+                // minimumInputLength: 2,
                 placeholder:"Select Requirement"
             }).
             on("select2:select",function (e) {

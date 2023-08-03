@@ -10,7 +10,7 @@ from mooringlicensing.components.main.models import (
 )
 from reversion.admin import VersionAdmin
 from mooringlicensing.components.proposals.models import StickerPrintingBatch, StickerPrintingResponse, \
-    StickerPrintingContact, StickerPrintedContact, MooringBay
+    StickerPrintingContact, StickerPrintedContact, MooringBay, Mooring
 from mooringlicensing.ledger_api_utils import retrieve_email_userro
 
 
@@ -90,6 +90,13 @@ class SystemMaintenanceAdmin(admin.ModelAdmin):
 class MooringBayAdmin(admin.ModelAdmin):
     list_display = ['name', 'code', 'mooring_bookings_id', 'active',]
     list_filter = ('active',)
+
+
+@admin.register(Mooring)
+class MooringAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name', 'mooring_bay', 'active', 'vessel_size_limit', 'vessel_draft_limit', 'mooring_licence',]
+    list_filter = ('active',)
+    search_fields = ['name',]
 
 
 class GlobalSettingsForm(django.forms.ModelForm):

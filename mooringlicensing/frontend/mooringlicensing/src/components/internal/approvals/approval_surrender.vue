@@ -3,41 +3,43 @@
         <modal transition="modal fade" @ok="ok()" @cancel="cancel()" :title="title" large>
             <div class="container-fluid">
                 <div class="row">
-                    <form class="form-horizontal" name="approvalForm">
+                    <div class="col-sm-12 warning">
+                        Are you sure you want to surrender your {{ approval_type_name }}?<br />
+                        Note: this is permanent and cannot be reversed.
+                    </div>
+                </div>
+                <form class="form-horizontal" name="approvalForm">
+                    <div class="row">
                         <alert :show.sync="showError" type="danger"><strong>{{errorString}}</strong></alert>
                         <div class="col-sm-12">
                             <div class="form-group">
-                                <div class="row">
-                                    <div class="col-sm-3">
-
-                                        <label class="control-label pull-left"  for="Name">Surrender Date</label>
-                                    </div>
-                                    <div class="col-sm-9">
-                                        <div class="input-group date" ref="surrender_date" style="width: 70%;">
-                                            <input type="text" class="form-control" name="surrender_date" placeholder="DD/MM/YYYY" v-model="approval.surrender_date">
-                                            <span class="input-group-addon">
-                                                <span class="glyphicon glyphicon-calendar"></span>
-                                            </span>
-                                        </div>
+                                <div class="col-sm-3">
+                                    <label class="control-label pull-left"  for="Name">Surrender Date</label>
+                                </div>
+                                <div class="col-sm-9">
+                                    <div class="input-group date" ref="surrender_date" style="width: 70%;">
+                                        <input type="text" class="form-control" name="surrender_date" placeholder="DD/MM/YYYY" v-model="approval.surrender_date">
+                                        <span class="input-group-addon">
+                                            <span class="glyphicon glyphicon-calendar"></span>
+                                        </span>
                                     </div>
                                 </div>
                             </div>
+                        </div>
 
+                        <div class="col-sm-12">
                             <div class="form-group">
-                                <div class="row">
-                                    <div class="col-sm-3">
-
-                                        <label class="control-label pull-left"  for="Name">Surrender Details</label>
-                                    </div>
-                                    <div class="col-sm-9">
-                                        <textarea name="surrender_details" class="form-control" style="width:70%;" v-model="approval.surrender_details"></textarea>
-                                    </div>
+                                <div class="col-sm-3">
+                                    <label class="control-label pull-left"  for="Name">Surrender Details</label>
+                                </div>
+                                <div class="col-sm-9">
+                                    <textarea name="surrender_details" class="form-control" style="width:70%;" v-model="approval.surrender_details"></textarea>
                                 </div>
                             </div>
 
                         </div>
-                    </form>
-                </div>
+                    </div>
+                </form>
             </div>
             <div slot="footer">
                 <button type="button" v-if="issuingApproval" disabled class="btn btn-default" @click="ok"><i class="fa fa-spinner fa-spin"></i> Processing</button>
@@ -72,6 +74,7 @@ export default {
             form:null,
             approval: {},
             approval_id: Number,
+            approval_type_name: '',
             state: 'proposed_approval',
             issuingApproval: false,
             validation_form: null,
@@ -102,7 +105,6 @@ export default {
             let vm =this;
             if($(vm.form).valid()){
                 vm.sendData();
-
             }
         },
         cancel:function () {
@@ -137,7 +139,7 @@ export default {
                         vm.close();
                         swal(
                              'Surrender',
-                             'An email has been sent to the proponent about surrender of this approval',
+                             'An email has been sent to you confirming surrender of your ' + vm.approval_type_name + '.',
                              'success'
                         );
                         vm.$emit('refreshFromResponse',response);
@@ -210,4 +212,8 @@ export default {
 </script>
 
 <style lang="css">
+.warning {
+    margin: 1em 0 2em 0;
+    font-weight: bold;
+}
 </style>

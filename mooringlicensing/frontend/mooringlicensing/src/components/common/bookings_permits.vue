@@ -47,7 +47,7 @@
                                             </tr>
                                         </thead>
                                         <tr v-for="vessel in approval.vessel_data">
-                                            <td>{{ vessel.rego_no }}</td>
+                                            <td><a :href="'/internal/vessel/' + vessel.id">{{ vessel.rego_no }}</a></td>
                                             <td>{{ vessel.vessel_name }}</td>
                                         </tr>
                                     </table>

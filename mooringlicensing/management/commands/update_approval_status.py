@@ -8,7 +8,8 @@ from mooringlicensing.components.approvals.models import (
     ApprovalUserAction, WaitingListAllocation,
 )
 from mooringlicensing.components.proposals.models import ProposalUserAction
-from ledger.accounts.models import EmailUser
+# from ledger.accounts.models import EmailUser
+from ledger_api_client.ledger_models import EmailUserRO
 import datetime
 from mooringlicensing.components.approvals.email import (
     send_approval_cancel_email_notification,
@@ -29,9 +30,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
-            user = EmailUser.objects.get(email=settings.CRON_EMAIL)
+            # user = EmailUser.objects.get(email=settings.CRON_EMAIL)
+            user = EmailUserRO.objects.get(email=settings.CRON_EMAIL)
         except:
-            user = EmailUser.objects.create(email=settings.CRON_EMAIL, password = '')
+            # user = EmailUser.objects.create(email=settings.CRON_EMAIL, password = '')
+            user = EmailUserRO.objects.create(email=settings.CRON_EMAIL, password = '')
 
         errors = []
         updates = []

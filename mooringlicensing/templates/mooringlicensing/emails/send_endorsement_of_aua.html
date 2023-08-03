@@ -4,10 +4,10 @@
 Dear {{ endorser.first_name }} {{ endorser.last_name }},
 
 <p>Your endorsement for an Authorised User Permit application submitted by {{ applicant.first_name }} {{ applicant.last_name }} for your mooring {{ mooring_name }} is due by {{ due_date }}.</p>
-<p>Please click <a href="{{ endorse_url }}">here</a> if you want to endorse the application.</p>
-<p>Please click <a href="{{ decline_url }}">here</a> if you want to decline the application.</p>
-
-<p>Please click <a href="{{ proposal_url }}">here</a> if you want to view the application details before endorsing or declining.</p>
+<!--<p>Please click <a href="{{ endorse_url }}">here</a> if you want to endorse the application.</p>-->
+<!--<p>Please click <a href="{{ decline_url }}">here</a> if you want to decline the application.</p>-->
+<!--<p>Please click <a href="{{ proposal_url }}">here</a> if you want to view the application details before endorsing or declining.</p>-->
+<p>Please click <a href="{{ login_url }}">here</a> to login and check the endorsement section on the dashboard.</p>
 
 {% include "mooringlicensing/emails/signature-rottnest.html" %}
 {% endblock %}

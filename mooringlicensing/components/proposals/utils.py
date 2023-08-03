@@ -384,6 +384,8 @@ def save_proponent_data_aaa(instance, request, viewset):
     )
     serializer.is_valid(raise_exception=True)
     instance = serializer.save()
+    logger.info(f'Update the Proposal: [{instance}] with the data: [{proposal_data}].')
+
     if viewset.action == 'submit':
         # if instance.invoice and instance.invoice.payment_status in ['paid', 'over_paid']:
         if instance.invoice and get_invoice_payment_status(instance.id) in ['paid', 'over_paid']:
@@ -415,6 +417,8 @@ def save_proponent_data_wla(instance, request, viewset):
     )
     serializer.is_valid(raise_exception=True)
     instance = serializer.save()
+    logger.info(f'Update the Proposal: [{instance}] with the data: [{proposal_data}].')
+
     if viewset.action == 'submit':
         # if instance.invoice and instance.invoice.payment_status in ['paid', 'over_paid']:
         if instance.invoice and get_invoice_payment_status(instance.invoice.id) in ['paid', 'over_paid']:
@@ -448,6 +452,7 @@ def save_proponent_data_mla(instance, request, viewset):
     serializer.is_valid(raise_exception=True)
     #instance = serializer.save()
     serializer.save()
+    logger.info(f'Update the Proposal: [{instance}] with the data: [{proposal_data}].')
 
     if viewset.action == 'submit':
         instance.child_obj.process_after_submit(request)
@@ -477,6 +482,8 @@ def save_proponent_data_aua(instance, request, viewset):
     serializer.is_valid(raise_exception=True)
     #instance = serializer.save()
     serializer.save()
+    logger.info(f'Update the Proposal: [{instance}] with the data: [{proposal_data}].')
+
     if viewset.action == 'submit':
         instance.child_obj.process_after_submit(request)
         instance.refresh_from_db()
@@ -684,54 +691,51 @@ def submit_vessel_data(instance, request, vessel_data):
     approvals_aup = []
     approvals_aup_sus = []
     for proposal in proposals:
-        if type(proposal) == WaitingListApplication and proposal.processing_status not in ['approved', 'declined', 'discarded']:
-            proposals_wla.append(proposal)
-        if type(proposal) == MooringLicenceApplication and proposal.processing_status not in ['approved', 'declined', 'discarded']:
-            proposals_mla.append(proposal)
-        if type(proposal) == AnnualAdmissionApplication and proposal.processing_status not in ['approved', 'declined', 'discarded']:
-            proposals_aaa.append(proposal)
-        if type(proposal) == AuthorisedUserApplication and proposal.processing_status not in ['approved', 'declined', 'discarded']:
-            proposals_aua.append(proposal)
+        # if type(proposal) == WaitingListApplication and proposal.processing_status not in ['approved', 'declined', 'discarded']:
+        if proposal.processing_status not in [Proposal.PROCESSING_STATUS_APPROVED, Proposal.PROCESSING_STATUS_DECLINED, Proposal.PROCESSING_STATUS_DISCARDED,]:
+            if type(proposal) == WaitingListApplication:
+                proposals_wla.append(proposal)
+            if type(proposal) == MooringLicenceApplication:
+                proposals_mla.append(proposal)
+            if type(proposal) == AnnualAdmissionApplication:
+                proposals_aaa.append(proposal)
+            if type(proposal) == AuthorisedUserApplication:
+                proposals_aua.append(proposal)
     for approval in approvals:
-        if type(approval.child_obj) == WaitingListAllocation and approval.status in settings.APPROVED_APPROVAL_STATUS:
-            approvals_wla.append(approval)
-        if type(approval.child_obj) == MooringLicence and approval.status in settings.APPROVED_APPROVAL_STATUS:
-            approvals_ml.append(approval)
-        #if type(approval) == MooringLicence and approval.status in settings.APPROVED_APPROVAL_STATUS:
-         #   approvals_ml_sus.append(approval)
-        if type(approval.child_obj) == AnnualAdmissionPermit and approval.status in settings.APPROVED_APPROVAL_STATUS:
-            approvals_aap.append(approval)
-        if type(approval.child_obj) == AuthorisedUserPermit and approval.status in settings.APPROVED_APPROVAL_STATUS:
-            approvals_aup.append(approval)
-        #if type(approval) == AuthorisedUserPermit and approval.status in settings.APPROVED_APPROVAL_STATUS:
-         #   approvals_aup_sus.append(approval)
+        if approval.status in settings.APPROVED_APPROVAL_STATUS:
+            if type(approval.child_obj) == WaitingListAllocation:
+                approvals_wla.append(approval)
+            if type(approval.child_obj) == MooringLicence:
+                approvals_ml.append(approval)
+            if type(approval.child_obj) == AnnualAdmissionPermit:
+                approvals_aap.append(approval)
+            if type(approval.child_obj) == AuthorisedUserPermit:
+                approvals_aup.append(approval)
+
+    wl_applications = WaitingListApplication.get_intermediate_proposals(instance.submitter).exclude(id=instance.id)
+    wl_allocations = WaitingListAllocation.get_intermediate_approvals(instance.submitter).exclude(approval=instance.approval)
+    ml_applications = MooringLicenceApplication.get_intermediate_proposals(instance.submitter)
+    ml_approvals = MooringLicence.get_valid_approvals(instance.submitter)
+
     # apply rules
-    if (type(instance.child_obj) == WaitingListApplication and (proposals_wla or approvals_wla or
-            proposals_mla or approvals_ml)):
-        #association_fail = True
-        raise serializers.ValidationError("The vessel in the application is already listed in " +  
+    if type(instance.child_obj) == WaitingListApplication and (proposals_wla or approvals_wla or proposals_mla or approvals_ml):
+        raise serializers.ValidationError("The vessel in the application is already listed in " +
         ", ".join(['{} {} '.format(proposal.description, proposal.lodgement_number) for proposal in proposals_wla]) +
         ", ".join(['{} {} '.format(approval.description, approval.lodgement_number) for approval in approvals_wla])
         )
     # Person can have only one WLA, Waiting Liast application, Mooring Licence and Mooring Licence application
     elif (type(instance.child_obj) == WaitingListApplication and (
-        WaitingListApplication.objects.filter(submitter=instance.submitter).exclude(processing_status__in=['approved', 'declined', 'discarded']).exclude(id=instance.id) or
-        WaitingListAllocation.objects.filter(submitter=instance.submitter).exclude(status__in=['cancelled', 'expired', 'surrendered']).exclude(approval=instance.approval) or
-        MooringLicenceApplication.objects.filter(submitter=instance.submitter).exclude(processing_status__in=['approved', 'declined', 'discarded']) or
-        MooringLicence.objects.filter(submitter=instance.submitter).filter(status__in=['current', 'suspended']))
+            WaitingListApplication.get_intermediate_proposals(instance.submitter).exclude(id=instance.id) or
+            WaitingListAllocation.get_intermediate_approvals(instance.submitter).exclude(approval=instance.approval) or
+            MooringLicenceApplication.get_intermediate_proposals(instance.submitter) or
+            MooringLicence.get_valid_approvals(instance.submitter))
         ):
         raise serializers.ValidationError("Person can have only one WLA, Waiting List application, Mooring Site Licence and Mooring Site Licence application")
     elif (type(instance.child_obj) == AnnualAdmissionApplication and (proposals_aaa or approvals_aap or
             proposals_aua or approvals_aup or proposals_mla or approvals_ml)):
-        #association_fail = True
-        raise serializers.ValidationError("The vessel in the application is already listed in " +  
-        ", ".join(['{} {} '.format(proposal.description, proposal.lodgement_number) for proposal in proposals_aaa]) +
-        ", ".join(['{} {} '.format(proposal.description, proposal.lodgement_number) for proposal in proposals_aua]) +
-        ", ".join(['{} {} '.format(proposal.description, proposal.lodgement_number) for proposal in proposals_mla]) +
-        ", ".join(['{} {} '.format(approval.description, approval.lodgement_number) for approval in approvals_aap]) +
-        ", ".join(['{} {} '.format(approval.description, approval.lodgement_number) for approval in approvals_aup]) +
-        ", ".join(['{} {} '.format(approval.description, approval.lodgement_number) for approval in approvals_ml])
-        )
+        list_sum = proposals_aaa + proposals_aua + proposals_mla + approvals_aap + approvals_aup + approvals_ml
+        raise serializers.ValidationError("The vessel in the application is already listed in " +
+        ", ".join(['{} {} '.format(item.description, item.lodgement_number) for item in list_sum]))
     elif type(instance.child_obj) == AuthorisedUserApplication and (proposals_aua or approvals_aup):
         #association_fail = True
         raise serializers.ValidationError("The vessel in the application is already listed in " +  
@@ -791,7 +795,7 @@ def store_vessel_data(request, vessel_data):
     return vessel, vessel_details
 
 def store_vessel_ownership(request, vessel, instance=None):
-    logger.info(f'store_vessel_ownership() is called with the vessel: {vessel}')
+    logger.info(f'Storing vessel_ownership with the vessel: [{vessel}], proposal: [{instance}] ...')
 
     ## Get Vessel
     ## we cannot use vessel_data, because this dict has been modified in store_vessel_data()
@@ -896,14 +900,29 @@ def store_vessel_ownership(request, vessel, instance=None):
     elif instance.proposal_type.code in [PROPOSAL_TYPE_AMENDMENT, PROPOSAL_TYPE_RENEWAL,]:
         # Retrieve a vessel_ownership from the previous proposal
         vessel_ownership = instance.previous_application.vessel_ownership
+
+        vessel_ownership_to_be_created = False
         if vessel_ownership.end_date:
             logger.info(f'Existing VesselOwnership: [{vessel_ownership}] has been retrieved, but the vessel is sold.  This vessel ownership cannot be used.')
+            vessel_ownership_to_be_created = True
+
+        keep_existing_vessel = request.data.get('proposal', {}).get('keep_existing_vessel', True)
+        if not keep_existing_vessel:
+            if instance.application_type.code in [MooringLicenceApplication.code,]:
+                logger.info(f'New vessel: [{vessel}] is going to be added to the ML application: [{instance}].')
+                vessel_ownership_to_be_created = True
+            if instance.application_type.code in [AuthorisedUserApplication.code,]:
+                logger.info(f'New vessel: [{vessel}] is going to replace the existing vessel of the AU application: [{instance}].')
+                vessel_ownership_to_be_created = True
+
+        if vessel_ownership_to_be_created:
             vessel_ownership = VesselOwnership.objects.create(
                 owner=owner,  # Owner is actually the accessing user (request.user) as above.
                 vessel=vessel,
                 company_ownership=company_ownership
             )
             vo_created = True
+
         q_for_approvals_check &= ~Q(id=instance.approval.id)  # We want to exclude the approval we are currently processing for
     else:
         msg = f'Proposal: [{instance}] does not have correct proposal type.'
@@ -1038,7 +1057,7 @@ def get_fee_amount_adjusted(proposal, fee_item_being_applied, vessel_length):
     # Retrieve all the fee_items for this vessel
 
     if fee_item_being_applied:
-        logger.info('Adjusting the fee amount for proposal: {}, fee_item: {}, vessel_length: {}'.format(
+        logger.info('Adjusting the fee amount for proposal: [{}], fee_item: [{}], vessel_length: [{}]'.format(
             proposal.lodgement_number, fee_item_being_applied, vessel_length
         ))
 
@@ -1080,8 +1099,9 @@ def get_fee_amount_adjusted(proposal, fee_item_being_applied, vessel_length):
 
                         # Applicant already partially paid for this fee item.  Deduct it.
                         if fee_item_considered_paid:
+                            logger.info(f'Deduct fee item: [{fee_item_considered_paid}] from [{fee_amount_adjusted}].')
                             fee_amount_adjusted -= fee_item_considered_paid.get_absolute_amount(vessel_length)
-                            logger.info('Deduct fee item: {}'.format(fee_item_considered_paid))
+                            logger.info(f'Result amount: $[{fee_amount_adjusted}].')
 
         fee_amount_adjusted = 0 if fee_amount_adjusted <= 0 else fee_amount_adjusted
     else:

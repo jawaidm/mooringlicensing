@@ -15,7 +15,7 @@ import django_countries
 import pytz
 import uuid
 
-from mooringlicensing.ledger_api_utils import retrieve_email_userro, get_invoice_payment_status, get_invoice_url
+from mooringlicensing.ledger_api_utils import retrieve_email_userro, get_invoice_payment_status
 # from mooringlicensing.components.payments_ml.utils import get_invoice_payment_status
 # from mooringlicensing.components.main.utils import retrieve_email_user
 # from ledger.settings_base import TIME_ZONE
@@ -429,16 +429,16 @@ class Proposal(DirtyFieldsMixin, RevisionedMixin):
         """
         Retrieve all the fee_items for this vessel
         """
-        logger.info(f'Adjusting the fee amount for proposal: {self.lodgement_number}, fee_item: [{fee_item_being_applied}], vessel_length: {vessel_length}')
+        logger.info(f'Adjusting the fee amount for proposal: [{self}], fee_item: [{fee_item_being_applied}], vessel_length: [{vessel_length}]')
 
         fee_amount_adjusted = fee_item_being_applied.get_absolute_amount(vessel_length)
 
         annual_admission_type = ApplicationType.objects.get(code=AnnualAdmissionApplication.code)
         if self.proposal_type.code in (PROPOSAL_TYPE_AMENDMENT,) or fee_item_being_applied.application_type == annual_admission_type:
             # When amendment or adjusting an AA component, amount needs to be adjusted
+            logger.info(f'Deduct $[{max_amount_paid}] from $[{fee_amount_adjusted}]')
             fee_amount_adjusted = fee_amount_adjusted - max_amount_paid
-
-            logger.info(f'Deduct {max_amount_paid} from {fee_amount_adjusted}')
+            logger.info(f'Result amount: $[{fee_amount_adjusted}]')
 
             fee_amount_adjusted = Decimal('0.00') if fee_amount_adjusted <= 0 else fee_amount_adjusted
         else:
@@ -447,6 +447,7 @@ class Proposal(DirtyFieldsMixin, RevisionedMixin):
         return fee_amount_adjusted
 
     def get_max_amount_paid_for_main_component(self):
+        logger.info(f'Calculating the max amount paid for the main component...')
         max_amount_paid_for_main_component = 0
 
         if self.proposal_type.code not in [PROPOSAL_TYPE_NEW, PROPOSAL_TYPE_RENEWAL]:
@@ -461,7 +462,7 @@ class Proposal(DirtyFieldsMixin, RevisionedMixin):
         return max_amount_paid_for_main_component
 
     def get_max_amount_paid_for_aa_component(self, target_date, vessel):
-        logger.info('Proposal.get_max_amount_paid_for_aa_component() is called.')
+        logger.info(f'Calculating the max amount paid for the AA component for the vessel: [{vessel}]...')
 
         max_amount_paid_for_aa_component = 0
 
@@ -513,19 +514,29 @@ class Proposal(DirtyFieldsMixin, RevisionedMixin):
                             logger.info(f'FeeItemApplicationFee: [{fee_item_application_fee}] found through the proposal: [{proposal}]')
 
                             target_vessel = fee_item_application_fee.vessel_details.vessel
+
                             # Retrieve the current approvals of the target_vessel
                             current_approvals = target_vessel.get_current_approvals(target_date)
-                            for key, qs in current_approvals.items():
-                                # We want to exclude the approval being amended(modified)
-                                current_approvals[key] = qs.exclude(id=self.approval.id)
                             logger.info(f'Current approvals for the vessel: [{target_vessel}]: {current_approvals}')
 
                             if target_vessel != vessel:
-                                # This fee_item_application_fee is not for the vessel we are looking at.
-                                if current_approvals['aaps'] or current_approvals['aups'] or current_approvals['mls']:
-                                    # This fee_item_application_fee is still used for other approval(s)
-                                    logger.info(f'Vessel: [{target_vessel}] still has current approval(s): [{current_approvals}].  We don\'t transfer the amount paid: [{fee_item_application_fee}].')
+                                from mooringlicensing.components.approvals.models import MooringLicence, AuthorisedUserPermit
+
+                                if proposal.approval and proposal.approval.child_obj and type(proposal.approval.child_obj) == MooringLicence:
+                                    # When ML, customer is adding a new vessel to the ML
+                                    # We have to charge full amount  --> Go to next loop
+                                    logger.info(f'Vessel: [{vessel}] is being added to the approval: [{proposal.approval}].  We don\'t transfer the amount paid: [{fee_item_application_fee}].')
                                     continue
+                                if proposal.approval and proposal.approval.child_obj and type(proposal.approval.child_obj) == AuthorisedUserPermit:
+                                    # When AU, customer is replacing the current vessel
+                                    for key, qs in current_approvals.items():
+                                        # We want to exclude the approval being amended(modified) because the target_vessel is being removed from it.
+                                        current_approvals[key] = qs.exclude(id=self.approval.id)
+                                    if current_approvals['aaps'] or current_approvals['aups'] or current_approvals['mls']:
+                                        # When the current vessel is still used for other approvals --> Go to next loop
+                                        # But this fee_item_application_fee is still used for other approval(s)
+                                        logger.info(f'Existing Vessel: [{target_vessel}] still has current approval(s): [{current_approvals}].  We don\'t transfer the amount paid: [{fee_item_application_fee}].')
+                                        continue
 
                             # This is paid for AA component for a target_vessel, but that vessel is no longer on any permit/licence
                             # In this case, we can transfer this amount
@@ -534,7 +545,7 @@ class Proposal(DirtyFieldsMixin, RevisionedMixin):
 #                                    # The amount paid found is larger than the one stored, update it.
 #                                    max_amount_paid = amount_paid
                             max_amount_paid += amount_paid
-                            logger.info(f'Transfer the amount paid: [{fee_item_application_fee}].')
+                            logger.info(f'Transferable amount: [{fee_item_application_fee}], which already has been paid.')
 
                 if proposal.proposal_type.code in [PROPOSAL_TYPE_NEW, PROPOSAL_TYPE_RENEWAL, ]:
                     # Now, 'prev_application' is the very first application for this season
@@ -1096,7 +1107,11 @@ class Proposal(DirtyFieldsMixin, RevisionedMixin):
             return False
 
     def has_assessor_mode(self,user):
-        status_without_assessor = ['with_approver','approved','awaiting_payment','declined','draft']
+        # status_without_assessor = ['with_approver','approved','awaiting_payment','declined','draft']
+        if isinstance(user, EmailUserRO):
+            user = user.id
+
+        status_without_assessor = [Proposal.PROCESSING_STATUS_WITH_APPROVER, Proposal.PROCESSING_STATUS_APPROVED, Proposal.PROCESSING_STATUS_AWAITING_PAYMENT, Proposal.PROCESSING_STATUS_DECLINED, Proposal.PROCESSING_STATUS_DRAFT]
         if self.processing_status in status_without_assessor:
             return False
         else:
@@ -1234,6 +1249,7 @@ class Proposal(DirtyFieldsMixin, RevisionedMixin):
                     send_proposal_approver_sendback_email_notification(request, self)
             self.processing_status = status
             self.save()
+            logger.info(f'Status:[{status}] has been set to the proposal: [{self}]')
             if status == self.PROCESSING_STATUS_WITH_ASSESSOR_REQUIREMENTS:
                 self.add_default_requirements()
 
@@ -1354,11 +1370,12 @@ class Proposal(DirtyFieldsMixin, RevisionedMixin):
                 # update WLA internal_status
                 ## ML
                 if type(self.child_obj) == MooringLicenceApplication and self.waiting_list_allocation:
-                    self.waiting_list_allocation.internal_status = 'waiting'
-                    current_datetime = datetime.datetime.now(pytz.timezone(TIME_ZONE))
-                    self.waiting_list_allocation.wla_queue_date = current_datetime
-                    self.waiting_list_allocation.save()
-                    self.waiting_list_allocation.set_wla_order()
+                    pass
+                    # self.waiting_list_allocation.internal_status = 'waiting'
+                    # current_datetime = datetime.datetime.now(pytz.timezone(TIME_ZONE))
+                    # self.waiting_list_allocation.wla_queue_date = current_datetime
+                    # self.waiting_list_allocation.save()
+                    # self.waiting_list_allocation.set_wla_order()
                 send_application_approved_or_declined_email(self, 'declined', request)
             except:
                 raise
@@ -1583,7 +1600,18 @@ class Proposal(DirtyFieldsMixin, RevisionedMixin):
                 self.save()
 
                 # Update stickers
-                moas_to_be_reallocated, stickers_to_be_returned = self.approval.manage_stickers(self)
+                new_sticker, sticker_to_be_returned = self.approval.manage_stickers(self)
+
+                # Handle this proposal status
+                if self.approval and self.approval.reissued:
+                    # Can only change the conditions, so goes to Approved
+                    self.processing_status = Proposal.PROCESSING_STATUS_APPROVED
+                else:
+                    if sticker_to_be_returned:
+                        self.processing_status = Proposal.PROCESSING_STATUS_STICKER_TO_BE_RETURNED
+                    elif new_sticker:
+                        self.processing_status = Proposal.PROCESSING_STATUS_PRINTING_STICKER
+                self.save()
 
                 from mooringlicensing.components.approvals.models import Sticker
 
@@ -1601,7 +1629,7 @@ class Proposal(DirtyFieldsMixin, RevisionedMixin):
 
                 # send Proposal approval email with attachment
                 approval.generate_doc()
-                send_application_approved_or_declined_email(self, 'approved', request, stickers_to_be_returned)
+                send_application_approved_or_declined_email(self, 'approved', request, [sticker_to_be_returned,])
                 self.save(version_comment='Final Approval: {}'.format(self.approval.lodgement_number))
                 self.approval.documents.all().update(can_delete=False)
 
@@ -1708,7 +1736,7 @@ class Proposal(DirtyFieldsMixin, RevisionedMixin):
                         # proposal type must be awaiting payment
                         self.processing_status = Proposal.PROCESSING_STATUS_AWAITING_PAYMENT
                         self.save()
-                        logger.info(f'Status: {Proposal.PROCESSING_STATUS_AWAITING_PAYMENT} has been set to the proposal: [{self}]')
+                        logger.info(f'Status: [{Proposal.PROCESSING_STATUS_AWAITING_PAYMENT}] has been set to the proposal: [{self}]')
 
                         from mooringlicensing.components.payments_ml.models import FeeItem
                         from mooringlicensing.components.payments_ml.models import FeeItemApplicationFee
@@ -1893,7 +1921,7 @@ class Proposal(DirtyFieldsMixin, RevisionedMixin):
         with transaction.atomic():
             try:
                 proposal = type(self.child_obj).objects.create()
-                proposal.processing_status = 'draft'
+                proposal.processing_status = Proposal.PROCESSING_STATUS_DRAFT
                 proposal.previous_application = self
                 proposal.approval = self.approval
                 proposal.null_vessel_on_create = not self.vessel_on_proposal()
@@ -1961,11 +1989,19 @@ class Proposal(DirtyFieldsMixin, RevisionedMixin):
             try:
                 logger.info(f'Amending approval: [{self.approval}]...')
 
+                add_vessel = request.data.get('add_vessel', False)  # This value comes from the radio button implemented on the proposal_apply.vue
+
                 # proposal = clone_proposal_with_status_reset(self)
                 proposal = self.clone_proposal_with_status_reset()
                 proposal.proposal_type = ProposalType.objects.get(code=PROPOSAL_TYPE_AMENDMENT)
                 proposal.submitter = request.user.id
                 proposal.previous_application = self
+                proposal.keep_existing_vessel = not add_vessel
+
+                from mooringlicensing.components.approvals.models import MooringLicence
+                if self.approval.child_obj.code == MooringLicence.code:
+                    proposal.allocated_mooring = self.approval.child_obj.mooring
+
                 req=self.requirements.all().exclude(is_deleted=True)
                 from copy import deepcopy
                 if req:
@@ -2032,7 +2068,7 @@ class Proposal(DirtyFieldsMixin, RevisionedMixin):
     @property
     def previous_application_status_filter(self):
         prev_application = self.previous_application
-        while prev_application and prev_application.processing_status in ['discarded', 'declined'] and prev_application.previous_application:
+        while prev_application and prev_application.processing_status in [Proposal.PROCESSING_STATUS_DISCARDED, Proposal.PROCESSING_STATUS_DECLINED,] and prev_application.previous_application:
             prev_application = prev_application.previous_application
         return prev_application
 
@@ -2349,11 +2385,20 @@ class WaitingListApplication(Proposal):
     def child_obj(self):
         raise NotImplementedError('This method cannot be called on a child_obj')
 
+    @staticmethod
+    def get_intermediate_proposals(email_user_id):
+        proposals = WaitingListApplication.objects.filter(submitter=email_user_id).exclude(processing_status__in=[
+            Proposal.PROCESSING_STATUS_APPROVED,
+            Proposal.PROCESSING_STATUS_DECLINED,
+            Proposal.PROCESSING_STATUS_DISCARDED,
+        ])
+        return proposals
+
     def create_fee_lines(self):
         """
         Create the ledger lines - line item for application fee sent to payment system
         """
-        logger.info('WaitingListApplication.create_fee_lines() is called')
+        logger.info(f'Creating fee lines for the WaitingListApplication: [{self}]...')
 
         from mooringlicensing.components.payments_ml.models import FeeConstructor
         from mooringlicensing.components.payments_ml.utils import generate_line_item
@@ -2399,12 +2444,11 @@ class WaitingListApplication(Proposal):
 
         # Retrieve amounts paid
         max_amount_paid = self.get_max_amount_paid_for_main_component()
+        logger.info(f'Max amount paid so far (for main component(WL)): ${max_amount_paid}')
         fee_item = fee_constructor.get_fee_item(vessel_length, self.proposal_type, target_date, accept_null_vessel=accept_null_vessel)
+        logger.info(f'FeeItem (for main component(WL)): [{fee_item}] has been retrieved for calculation.')
         fee_amount_adjusted = self.get_fee_amount_adjusted(fee_item, vessel_length, max_amount_paid)
-
-        logger.info(f'Max amount paid (for main component(WL)): {max_amount_paid}')
-        logger.info(f'FeeItem (for main component(WL)): {fee_item}')
-        logger.info(f'Fee amount adjusted (for main component(WL)): {fee_amount_adjusted}')
+        logger.info(f'Fee amount adjusted (for main component(WL)) to be paid: ${fee_amount_adjusted}')
 
         db_processes_after_success['season_start_date'] = fee_constructor.fee_season.start_date.__str__()
         db_processes_after_success['season_end_date'] = fee_constructor.fee_season.end_date.__str__()
@@ -2500,8 +2544,13 @@ class WaitingListApplication(Proposal):
             # invoice_bytes = create_invoice_pdf_bytes('invoice.pdf', self.invoice,)
             # api_key = settings.LEDGER_API_KEY
             # url = settings.LEDGER_API_URL + '/ledgergw/invoice-pdf/' + api_key + '/' + self.invoice.reference
-            url = get_invoice_url(self.invoice.reference, request)
+            # url = get_invoice_url(self.invoice.reference, request)
+            # invoice_pdf = requests.get(url=url)
+
+            api_key = settings.LEDGER_API_KEY
+            url = settings.LEDGER_API_URL+'/ledgergw/invoice-pdf/'+api_key+'/' + self.invoice.reference
             invoice_pdf = requests.get(url=url)
+
             if invoice_pdf.status_code == 200:
                 attachment = ('invoice#{}.pdf'.format(self.invoice.reference), invoice_pdf.content, 'application/pdf')
                 attachments.append(attachment)
@@ -2561,7 +2610,7 @@ class AnnualAdmissionApplication(Proposal):
         """
         Create the ledger lines - line item for application fee sent to payment system
         """
-        logger.info('AnnualAdmissionApplication.create_fee_lines() is called')
+        logger.info(f'Creating fee lines for the AnnualAdmissionApplication: [{self}]...')
 
         from mooringlicensing.components.payments_ml.models import FeeConstructor
         from mooringlicensing.components.payments_ml.utils import generate_line_item
@@ -2614,12 +2663,11 @@ class AnnualAdmissionApplication(Proposal):
 
         # Retrieve amounts paid
         max_amount_paid = self.get_max_amount_paid_for_main_component()
+        logger.info(f'Max amount paid so far (for main component(AA)): ${max_amount_paid}')
         fee_item = fee_constructor.get_fee_item(vessel_length, self.proposal_type, target_date, accept_null_vessel=accept_null_vessel)
+        logger.info(f'FeeItem (for main component(AA)): [{fee_item}] has been retrieved for calculation.')
         fee_amount_adjusted = self.get_fee_amount_adjusted(fee_item, vessel_length, max_amount_paid)
-
-        logger.info(f'Max amount paid (for main component(AA)): {max_amount_paid}')
-        logger.info(f'FeeItem (for main component(AA)): {fee_item}')
-        logger.info(f'Fee amount adjusted (for main component(AA)): {fee_amount_adjusted}')
+        logger.info(f'Fee amount adjusted (for main component(AA)) to be paid: ${fee_amount_adjusted}')
 
         db_processes_after_success['season_start_date'] = fee_constructor.fee_season.start_date.__str__()
         db_processes_after_success['season_end_date'] = fee_constructor.fee_season.end_date.__str__()
@@ -2712,8 +2760,12 @@ class AnnualAdmissionApplication(Proposal):
         #     invoice_bytes = create_invoice_pdf_bytes('invoice.pdf', self.invoice,)
         #     attachment = ('invoice#{}.pdf'.format(self.invoice.reference), invoice_bytes, 'application/pdf')
         #     attachments.append(attachment)
-            url = get_invoice_url(self.invoice.reference, request)
+        #     url = get_invoice_url(self.invoice.reference, request)
+        #     invoice_pdf = requests.get(url=url)
+            api_key = settings.LEDGER_API_KEY
+            url = settings.LEDGER_API_URL+'/ledgergw/invoice-pdf/'+api_key+'/' + self.invoice.reference
             invoice_pdf = requests.get(url=url)
+
             if invoice_pdf.status_code == 200:
                 attachment = (f'invoice#{self.invoice.reference}', invoice_pdf.content, 'application/pdf')
                 attachments.append(attachment)
@@ -2762,7 +2814,7 @@ class AuthorisedUserApplication(Proposal):
 
     def create_fee_lines(self):
         """ Create the ledger lines - line item for application fee sent to payment system """
-        logger.info('AuthorisedUserApplication.create_fee_lines() is called')
+        logger.info(f'Creating fee lines for the AuthorisedUserApplication: [{self}]...')
 
         from mooringlicensing.components.payments_ml.models import FeeConstructor
         from mooringlicensing.components.payments_ml.utils import generate_line_item
@@ -2831,12 +2883,11 @@ class AuthorisedUserApplication(Proposal):
 
         # Retrieve amounts paid
         max_amount_paid = self.get_max_amount_paid_for_main_component()
+        logger.info(f'Max amount paid so far (for main component(AU)): ${max_amount_paid}')
         fee_item = fee_constructor.get_fee_item(vessel_length, self.proposal_type, target_date, accept_null_vessel=accept_null_vessel)
+        logger.info(f'FeeItem (for main component(AU)): [{fee_item}] has been retrieved for calculation.')
         fee_amount_adjusted = self.get_fee_amount_adjusted(fee_item, vessel_length, max_amount_paid)
-
-        logger.info(f'Max amount paid (for main component(AU)): {max_amount_paid}')
-        logger.info(f'FeeItem (for main component(AU)): {fee_item}')
-        logger.info(f'Fee amount adjusted (for main component(AU)): {fee_amount_adjusted}')
+        logger.info(f'Fee amount adjusted (for main component(AU)) to be paid: ${fee_amount_adjusted}')
 
         fee_items_to_store.append({
             'fee_item_id': fee_item.id,
@@ -2848,12 +2899,11 @@ class AuthorisedUserApplication(Proposal):
         if application_has_vessel:
             # When the application has a vessel, user have to pay for the AA component, too.
             max_amount_paid = self.get_max_amount_paid_for_aa_component(target_date, self.vessel_details.vessel)
+            logger.info(f'Max amount paid so far (for AA component): ${max_amount_paid}')
             fee_item_for_aa = fee_constructor_for_aa.get_fee_item(vessel_length, self.proposal_type, target_date) if fee_constructor_for_aa else None
+            logger.info(f'FeeItem (for AA component): [{fee_item_for_aa}] has been retrieved for calculation.')
             fee_amount_adjusted_additional = self.get_fee_amount_adjusted(fee_item_for_aa, vessel_length, max_amount_paid)
-
-            logger.info(f'Max amount paid (for AA component): {max_amount_paid}')
-            logger.info(f'FeeItem (for AA component): {fee_item_for_aa}')
-            logger.info(f'Fee amount adjusted (for AA component): {fee_amount_adjusted_additional}')
+            logger.info(f'Fee amount adjusted (for AA component) to be paid: ${fee_amount_adjusted_additional}')
 
             fee_items_to_store.append({
                 'fee_item_id': fee_item_for_aa.id,
@@ -3054,7 +3104,7 @@ class AuthorisedUserApplication(Proposal):
                         moa2.end_date = None
                         moa2.save()
         # set auto_approve renewal application ProposalRequirement due dates to those from previous application + 12 months
-        if self.auto_approve and self.proposal_type.code == 'renewal':
+        if self.auto_approve and self.proposal_type.code == PROPOSAL_TYPE_RENEWAL:
             for req in self.requirements.filter(is_deleted=False):
                 if req.copied_from and req.copied_from.due_date:
                     req.due_date = req.copied_from.due_date + relativedelta(months=+12)
@@ -3063,7 +3113,7 @@ class AuthorisedUserApplication(Proposal):
         if request:
             # Generate compliances
             from mooringlicensing.components.compliances.models import Compliance, ComplianceUserAction
-            target_proposal = self.previous_application if self.proposal_type.code == 'amendment' else self.proposal
+            target_proposal = self.previous_application if self.proposal_type.code == PROPOSAL_TYPE_AMENDMENT else self.proposal
             for compliance in Compliance.objects.filter(
                 approval=approval.approval,
                 proposal=target_proposal,
@@ -3089,9 +3139,13 @@ class AuthorisedUserApplication(Proposal):
         # Retrieve newely added moorings, and send authorised user summary doc to the licence holder
         mls_to_be_emailed = []
         from mooringlicensing.components.approvals.models import MooringOnApproval, MooringLicence, Approval, Sticker
-        new_moas = MooringOnApproval.objects.filter(approval=approval, sticker__isnull=True)  # New moa doesn't have stickers.
-        for new_moa in new_moas:
-            mls_to_be_emailed = MooringLicence.objects.filter(mooring=new_moa.mooring, status__in=[Approval.APPROVAL_STATUS_CURRENT, Approval.APPROVAL_STATUS_SUSPENDED,])
+        new_moas = MooringOnApproval.objects.filter(approval=approval, sticker__isnull=True, end_date__isnull=True)  # New moa doesn't have stickers.
+        if self.mooring_authorisation_preference == 'ria':
+            # Do we send an authorised user mooring summary doc to someone?
+            pass
+        else:
+            for new_moa in new_moas:
+                mls_to_be_emailed = MooringLicence.objects.filter(mooring=new_moa.mooring, status__in=[Approval.APPROVAL_STATUS_CURRENT, Approval.APPROVAL_STATUS_SUSPENDED,])
 
         # manage stickers
         moas_to_be_reallocated, stickers_to_be_returned = approval.manage_stickers(self)
@@ -3209,9 +3263,17 @@ class MooringLicenceApplication(Proposal):
     def child_obj(self):
         raise NotImplementedError('This method cannot be called on a child_obj')
 
+    @staticmethod
+    def get_intermediate_proposals(email_user_id):
+        proposals = MooringLicenceApplication.objects.filter(submitter=email_user_id).exclude(processing_status__in=[
+            Proposal.PROCESSING_STATUS_APPROVED,
+            Proposal.PROCESSING_STATUS_DECLINED,
+            Proposal.PROCESSING_STATUS_DISCARDED,])
+        return proposals
+
     def create_fee_lines(self):
         """ Create the ledger lines - line item for application fee sent to payment system """
-        logger.info('MooringLicenceApplication.create_fee_lines() is called')
+        logger.info(f'Creating fee lines for the MooringLicenceApplication: [{self}]...')
 
         from mooringlicensing.components.payments_ml.models import FeeConstructor
         from mooringlicensing.components.payments_ml.utils import generate_line_item
@@ -3227,8 +3289,8 @@ class MooringLicenceApplication(Proposal):
         fee_constructor_for_ml = FeeConstructor.get_fee_constructor_by_application_type_and_date(self.application_type, target_date)
         fee_constructor_for_aa = FeeConstructor.get_fee_constructor_by_application_type_and_date(annual_admission_type, target_date)
 
-        logger.info(f'FeeConstructor (for main component(ML)): {fee_constructor_for_ml}')
-        logger.info(f'FeeConstructor (for AA component): {fee_constructor_for_aa}')
+        logger.info(f'FeeConstructor (for main component(ML)): [{fee_constructor_for_ml}] has been retrieved for calculation.')
+        logger.info(f'FeeConstructor (for AA component): [{fee_constructor_for_aa}] has been retrieved for calculation.')
 
         vessel_detais_list_to_be_processed = [self.vessel_details,]
         vessel_details_largest = self.vessel_details
@@ -3259,16 +3321,15 @@ class MooringLicenceApplication(Proposal):
                 logger.error(msg)
                 raise Exception(msg)
 
-        logger.info(f'Largest vessel_length: {vessel_length}')
+        logger.info(f'The largest size of vessels to be considered here is [{vessel_length}]m for the proposal: [{self}].')
 
         # Retrieve amounts paid
         max_amount_paid = self.get_max_amount_paid_for_main_component()
+        logger.info(f'Max amount paid so far (for main component(ML)): ${max_amount_paid}')
         fee_item = fee_constructor_for_ml.get_fee_item(vessel_length, self.proposal_type, target_date, accept_null_vessel=accept_null_vessel)
+        logger.info(f'FeeItem (for main component(ML)): [{fee_item}] has been retrieved for calculation.')
         fee_amount_adjusted = self.get_fee_amount_adjusted(fee_item, vessel_length, max_amount_paid)
-
-        logger.info(f'Max amount paid (for main component(ML)): {max_amount_paid}')
-        logger.info(f'FeeItem (for main component(ML)): {fee_item}')
-        logger.info(f'Fee amount adjusted (for main component(ML)): {fee_amount_adjusted}')
+        logger.info(f'Fee amount adjusted (for main component(ML)) to be paid: ${fee_amount_adjusted}')
 
         fee_items_to_store.append({
             'fee_item_id': fee_item.id,
@@ -3282,13 +3343,12 @@ class MooringLicenceApplication(Proposal):
             vessel_length = vessel_details.vessel_applicable_length
 
             max_amount_paid = self.get_max_amount_paid_for_aa_component(target_date, vessel_details.vessel)
+            logger.info(f'Max amount paid so far (for AA component): ${max_amount_paid}')
             # Check if there is already an AA component paid for this vessel
             fee_item_for_aa = fee_constructor_for_aa.get_fee_item(vessel_length, self.proposal_type, target_date)
+            logger.info(f'FeeItem (for AA component): [{fee_item_for_aa}] has been retrieved for calculation.')
             fee_amount_adjusted_additional = self.get_fee_amount_adjusted(fee_item_for_aa, vessel_length, max_amount_paid)
-
-            logger.info(f'Max amount paid (for AA component): {max_amount_paid}')
-            logger.info(f'FeeItem (for AA component): {fee_item_for_aa}')
-            logger.info(f'Fee amount adjusted (for AA component): {fee_amount_adjusted_additional}')
+            logger.info(f'Fee amount adjusted (for AA component): ${fee_amount_adjusted_additional}')
 
             fee_items_to_store.append({
                 'fee_item_id': fee_item_for_aa.id,
@@ -3409,15 +3469,20 @@ class MooringLicenceApplication(Proposal):
 
     def process_after_submit(self, request):
         self.lodgement_date = datetime.datetime.now(pytz.timezone(TIME_ZONE))
-        self.save()
         self.log_user_action(ProposalUserAction.ACTION_LODGE_APPLICATION.format(self.id), request)
+
         if self.proposal_type in (ProposalType.objects.filter(code__in=(PROPOSAL_TYPE_RENEWAL, PROPOSAL_TYPE_AMENDMENT))):
             self.processing_status = Proposal.PROCESSING_STATUS_WITH_ASSESSOR
-            self.save()
         else:
-            self.processing_status = Proposal.PROCESSING_STATUS_AWAITING_DOCUMENTS
-            self.save()
-            send_documents_upload_for_mooring_licence_application_email(request, self)
+            if self.amendment_requests.count():
+                self.processing_status = Proposal.PROCESSING_STATUS_WITH_ASSESSOR
+                # TODO:
+            else:
+                self.processing_status = Proposal.PROCESSING_STATUS_AWAITING_DOCUMENTS
+                send_documents_upload_for_mooring_licence_application_email(request, self)
+
+        self.save()
+        logger.info(f'Status: [{self.processing_status}] has been set to the proposal: [{self}].')
 
     def update_or_create_approval(self, current_datetime, request=None):
         logger.info(f'MooringLicenceApplication.update_or_create_approval() is called')
@@ -3428,7 +3493,6 @@ class MooringLicenceApplication(Proposal):
             else:
                 existing_mooring_licence = self.allocated_mooring.mooring_licence if self.allocated_mooring else None
             mooring = existing_mooring_licence.mooring if existing_mooring_licence else self.allocated_mooring
-            existing_mooring_licence_vessel_count = existing_mooring_licence.vesselownershiponapproval_set.count() if existing_mooring_licence else None
             created = None
 
             if self.proposal_type.code == PROPOSAL_TYPE_RENEWAL:
@@ -3652,19 +3716,24 @@ class PrivateMooringManager(models.Manager):
 
 class AuthorisedUserMooringManager(models.Manager):
     def get_queryset(self):
-        return super(AuthorisedUserMooringManager, self).get_queryset().filter(mooring_bookings_mooring_specification=2, mooring_licence__status='current')
+        # from mooringlicensing.components.approvals.models import Approval
+        # ret = super(AuthorisedUserMooringManager, self).get_queryset().filter(mooring_bookings_mooring_specification=2, mooring_licence__status=Approval.APPROVAL_STATUS_CURRENT)
+        ret = super(AuthorisedUserMooringManager, self).get_queryset().filter(mooring_bookings_mooring_specification=2,)  # Can any mooring be an authorised user mooring, can't it?
+        return ret
 
 
 class AvailableMooringManager(models.Manager):
     def get_queryset(self):
+        from mooringlicensing.components.approvals.models import Approval
+
         available_ids = []
         for mooring in Mooring.private_moorings.all():
             # first check mooring_licence status
-            if not mooring.mooring_licence or mooring.mooring_licence.status != 'current':
+            if not mooring.mooring_licence or mooring.mooring_licence.status != Approval.APPROVAL_STATUS_CURRENT:
                 # now check whether there are any blocking proposals
                 blocking_proposal = False
                 for proposal in mooring.ria_generated_proposal.all():
-                    if proposal.processing_status not in ['approved', 'declined', 'discarded']:
+                    if proposal.processing_status not in [Proposal.PROCESSING_STATUS_APPROVED, Proposal.PROCESSING_STATUS_DECLINED, Proposal.PROCESSING_STATUS_DISCARDED,]:
                         blocking_proposal = True
                 if not blocking_proposal:
                     available_ids.append(mooring.id)
@@ -4303,6 +4372,17 @@ class AmendmentReason(models.Model):
         return self.reason
 
 
+# class BackToAssessor(models.Model):
+#     details = models.TextField(blank=True)
+#     proposal = models.ForeignKey(Proposal, on_delete=models.CASCADE)
+#
+#     class Meta:
+#         app_label = 'mooringlicensing'
+#
+#     def __str__(self):
+#         return self.details
+
+
 class AmendmentRequest(ProposalRequest):
     STATUS_CHOICES = (('requested', 'Requested'), ('amended', 'Amended'))
 
@@ -4319,9 +4399,10 @@ class AmendmentRequest(ProposalRequest):
                     raise exceptions.ProposalNotAuthorized()
                 if self.status == 'requested':
                     proposal = self.proposal
-                    if proposal.processing_status != 'draft':
-                        proposal.processing_status = 'draft'
+                    if proposal.processing_status != Proposal.PROCESSING_STATUS_DRAFT:
+                        proposal.processing_status = Proposal.PROCESSING_STATUS_DRAFT
                         proposal.save()
+                        logger.info(f'Status: [{Proposal.PROCESSING_STATUS_DRAFT}] has been set to the proposal: [{proposal}]')
                     # Create a log entry for the proposal
                     proposal.log_user_action(ProposalUserAction.ACTION_ID_REQUEST_AMENDMENTS, request)
                     # Create a log entry for the organisation

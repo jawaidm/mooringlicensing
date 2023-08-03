@@ -217,23 +217,16 @@ APPLICATION_TYPES = [
     APPLICATION_TYPE_MOORING_SWAP,
 ]
 
-# Add a formatter for the contents of the cron email
+# Logging: Formatter
 LOGGING['formatters']['msg_only'] = {
     'format': '{message}',
     'style': '{',
 }
 
-# Add a handler
+# Logging: Handler
 CRON_EMAIL_FILE_NAME = 'cron_email.log'
-LOGGING['handlers']['file_mooringlicensing'] = {
-    'level': 'INFO',
-    'class': 'logging.handlers.RotatingFileHandler',
-    'filename': os.path.join(BASE_DIR, 'logs', 'mooringlicensing.log'),
-    'formatter': 'verbose',
-    'maxBytes': 5242880
-}
 # logs/run_cron_tasks.log file is temporarily used in cron_tasks.py, and it's cleared whenever cron runs.
-# Therefore we need persistent log files for cron job
+# Therefore, we need persistent log files for cron job
 LOGGING['handlers']['file_cron_tasks'] = {
     'level': 'INFO',
     'class': 'logging.handlers.RotatingFileHandler',
@@ -249,18 +242,14 @@ LOGGING['handlers']['file_cron_email'] = {
     'formatter': 'msg_only',
     'maxBytes': 5242880
 }
-# LOGGING['handlers']['console'] = {
-#     'level': 'DEBUG',
-#     'class': 'logging.StreamHandler',
-#     'stream': sys.stdout,
-#     'formatter': 'verbose',
-# }
 
-# Define loggers
-LOGGING['loggers']['mooringlicensing'] = {
-    'handlers': ['file_mooringlicensing',],
-    'level': 'DEBUG',
+# Update formatter of the existing loggers
+LOGGING['formatters']['verbose2'] = {
+    "format": "%(levelname)s %(asctime)s %(name)s [Line:%(lineno)s][%(funcName)s] %(message)s"
 }
+LOGGING['handlers']['console']['formatter'] = 'verbose2'
+LOGGING['handlers']['file']['formatter'] = 'verbose2'
+
 LOGGING['loggers']['cron_tasks'] = {
     'handlers': ['file_cron_tasks'],
     'level': 'INFO',
@@ -270,9 +259,8 @@ LOGGING['loggers']['cron_email'] = {
     'level': 'INFO',
     'propagate': True,
 }
+LOGGING['disable_existing_loggers'] = False  # Without this line, any loggers retrieved by getLogger(__name__) are disabled.  This line should be probably placed in the settings_base.py
 
-# Logging all to mooringlicensing.log file
-LOGGING['loggers']['']['handlers'].append('file_mooringlicensing')
 DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 
 GROUP_MOORING_LICENSING_ADMIN = 'Mooring Licensing - Admin'

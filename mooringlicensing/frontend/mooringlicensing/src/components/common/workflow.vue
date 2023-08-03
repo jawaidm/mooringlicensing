@@ -147,11 +147,16 @@
 -->
                                     <div class="row" v-if="display_action_back_to_assessor_requirements">
                                         <div class="col-sm-12">
-                                            <button 
+                                            <!-- <button 
                                                 class="btn btn-primary top-buffer-s w-btn" 
                                                 :disabled="can_user_edit" 
                                                 @click.prevent="switchStatus('with_assessor_requirements')"
-                                            ><!-- Back To Requirements -->Back To Assessor</button><br/>
+                                            ><Back To Requirements>Back To Assessor</button><br/ -->
+                                            <button 
+                                                class="btn btn-primary top-buffer-s w-btn" 
+                                                :disabled="can_user_edit" 
+                                                @click.prevent="backToAssessorRequirements()"
+                                            >Back To Assessor</button><br/>
                                         </div>
                                     </div>
 
@@ -339,6 +344,9 @@ export default {
         }
     },
     methods: {
+        backToAssessorRequirements: function(){
+            this.$emit('backToAssessorRequirements')
+        },
         assignRequestUser: function(){
             this.$emit('assignRequestUser')
         },

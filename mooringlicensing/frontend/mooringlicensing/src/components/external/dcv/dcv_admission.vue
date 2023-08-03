@@ -7,7 +7,7 @@
                 </div>
             </div>
             <div class="row form-group">
-                <label for="vessel_search" class="col-sm-3 control-label">Unique Vessel Identifier (UVI)</label>
+                <label for="vessel_search" class="col-sm-3 control-label">Vessel registration</label>
                 <div class="col-sm-9">
                     <select :disabled="readonly" id="vessel_search" name="vessel_registration" ref="dcv_vessel_rego_nos" class="form-control" style="width: 40%">
                         <option></option>

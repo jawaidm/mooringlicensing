@@ -214,7 +214,7 @@ def send_approver_approve_decline_email_notification(request, proposal):
         html_template='mooringlicensing/emails_2/email_3.html',
         txt_template='mooringlicensing/emails_2/email_3.txt',
     )
-
+    # test
     url = request.build_absolute_uri(reverse('internal-proposal-detail', kwargs={'proposal_pk': proposal.id}))
     url = make_url_for_internal(url)
 
@@ -296,7 +296,7 @@ def send_create_mooring_licence_application_email_notification(request, waiting_
     context = {
         'public_url': get_public_url(request),
         'wla': waiting_list_allocation,
-        'recipient': mooring_licence_application.submitter,
+        'recipient': mooring_licence_application.submitter_obj,
         'application_period': days_setting_application_period.number_of_days,
         'documents_period': days_setting_documents_period.number_of_days,
         'proposal_external_url': url,
@@ -380,7 +380,7 @@ def send_comppliance_due_date_notification(approval, compliance,):
         'public_url': get_public_url(),
         'approval': approval,
         'compliance': compliance,
-        'recipient': compliance.submitter,
+        'recipient': compliance.submitter_obj,
         'compliance_external_url': make_http_https(url),
     }
     to_address = retrieve_email_userro(compliance.submitter).email
@@ -413,7 +413,7 @@ def send_comliance_overdue_notification(request, approval, compliance,):
         'public_url': get_public_url(request),
         'approval': approval,
         'compliance': compliance,
-        'recipient': compliance.submitter,
+        'recipient': compliance.submitter_obj,
         'compliance_external_url': make_http_https(url),
     }
     to_address = retrieve_email_userro(compliance.submitter).email
@@ -876,7 +876,7 @@ def send_aua_approved_or_declined_email_new_renewal(proposal, decision, request,
             invoice = Invoice.objects.get(reference=application_fee.invoice_reference)
             if get_invoice_payment_status(invoice.id) not in ('paid', 'over_paid'):
                 # Payment required
-                payment_url = '{}/application_fee_existing/{}'.format(get_public_url(request), proposal.id)
+                payment_url = '{}/application_fee_existing/{}'.format(get_public_url(request), invoice.reference)
     elif decision == 'approved_paid':
         # after payment
         html_template += 'email_20b.html'
@@ -886,7 +886,8 @@ def send_aua_approved_or_declined_email_new_renewal(proposal, decision, request,
         cc_list = proposal.proposed_issuance_approval.get('cc_email') if proposal.proposed_issuance_approval else ''
         if cc_list:
             all_ccs = cc_list.split(',')
-        attachments = get_attachments(False, True, proposal)
+        # attachments = get_attachments(False, True, proposal)
+        attachments = get_attachments(True, True, proposal)
     elif decision == 'declined':
         # declined
         html_template += 'email_20c.html'
@@ -1015,7 +1016,8 @@ def send_aua_approved_or_declined_email_amendment_payment_required(proposal, dec
             invoice = Invoice.objects.get(reference=application_fee.invoice_reference)
             if get_invoice_payment_status(invoice.id) not in ('paid', 'over_paid'):
                 # Payment required
-                payment_url = '{}/application_fee_existing/{}'.format(get_public_url(request), proposal.id)
+                # payment_url = '{}/application_fee_existing/{}'.format(get_public_url(request), proposal.id)
+                payment_url = '{}/application_fee_existing/{}'.format(get_public_url(request), invoice.reference)
     elif decision == 'approved_paid':
         # after payment
         html_template += 'email_22b.html'
@@ -1188,7 +1190,7 @@ def send_mla_approved_or_declined_email_new_renewal(proposal, decision, request,
             invoice = Invoice.objects.get(reference=application_fee.invoice_reference)
             if get_invoice_payment_status(invoice.id) not in ('paid', 'over_paid'):
                 # Payment required
-                payment_url = '{}/application_fee_existing/{}'.format(get_public_url(request), proposal.id)
+                payment_url = '{}/application_fee_existing/{}'.format(get_public_url(request), invoice.reference)
     elif decision == 'approved_paid':
         html_template += 'email_23b.html'
         txt_template += 'email_23b.txt'
@@ -1199,7 +1201,7 @@ def send_mla_approved_or_declined_email_new_renewal(proposal, decision, request,
             all_ccs = cc_list.split(',')
 
         attach_au_summary_doc = True if proposal.proposal_type.code in [PROPOSAL_TYPE_AMENDMENT, PROPOSAL_TYPE_RENEWAL,] else False
-        attachments = get_attachments(False, True, proposal, attach_au_summary_doc)
+        attachments = get_attachments(True, True, proposal, attach_au_summary_doc)
 
     elif decision == 'declined':
         html_template += 'email_23c.html'
@@ -1332,7 +1334,7 @@ def send_mla_approved_or_declined_email_amendment_payment_required(proposal, dec
             invoice = Invoice.objects.get(reference=application_fee.invoice_reference)
             if get_invoice_payment_status(invoice.id) not in ('paid', 'over_paid'):
                 # Payment required
-                payment_url = '{}/application_fee_existing/{}'.format(get_public_url(request), proposal.id)
+                payment_url = '{}/application_fee_existing/{}'.format(get_public_url(request), invoice.reference)
     elif decision == 'approved_paid':
         # after payment
         html_template += 'email_25b.html'
@@ -1480,9 +1482,10 @@ def send_endorsement_of_authorised_user_application_email(request, proposal):
         txt_template='mooringlicensing/emails/send_endorsement_of_aua.txt',
     )
     url = settings.SITE_URL if settings.SITE_URL else ''
-    endorse_url = url + reverse('endorse-url', kwargs={'uuid_str': proposal.uuid})
-    decline_url = url + reverse('decline-url', kwargs={'uuid_str': proposal.uuid})
-    proposal_url = url + reverse('external-proposal-detail', kwargs={'proposal_pk': proposal.id})
+    # endorse_url = url + reverse('endorse-url', kwargs={'uuid_str': proposal.uuid})
+    # decline_url = url + reverse('decline-url', kwargs={'uuid_str': proposal.uuid})
+    # proposal_url = url + reverse('external-proposal-detail', kwargs={'proposal_pk': proposal.id})
+    login_url = MOORING_LICENSING_EXTERNAL_URL + reverse('external')
 
     try:
         endorser = EmailUser.objects.get(email=proposal.site_licensee_email)
@@ -1500,11 +1503,12 @@ def send_endorsement_of_authorised_user_application_email(request, proposal):
         'recipient': proposal.submitter_obj,
         'endorser': endorser,
         'applicant': proposal.submitter_obj,
-        'endorse_url': make_http_https(endorse_url),
-        'decline_url': make_http_https(decline_url),
-        'proposal_url': make_http_https(proposal_url),
+        # 'endorse_url': make_http_https(endorse_url),
+        # 'decline_url': make_http_https(decline_url),
+        # 'proposal_url': make_http_https(proposal_url),
         'mooring_name': mooring_name,
         'due_date': due_date,
+        'login_url': login_url,
     }
 
     to_address = proposal.site_licensee_email

@@ -1,5 +1,6 @@
 from datetime import timedelta
-from ledger.accounts.models import EmailUser
+# from ledger.accounts.models import EmailUser
+from ledger_api_client.ledger_models import EmailUserRO
 
 from django.utils import timezone
 from django.core.management.base import BaseCommand
@@ -25,9 +26,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
-            user = EmailUser.objects.get(email=settings.CRON_EMAIL)
+            # user = EmailUser.objects.get(email=settings.CRON_EMAIL)
+            user = EmailUserRO.objects.get(email=settings.CRON_EMAIL)
         except:
-            user = EmailUser.objects.create(email=settings.CRON_EMAIL, password='')
+            # user = EmailUser.objects.create(email=settings.CRON_EMAIL, password='')
+            user = EmailUserRO.objects.create(email=settings.CRON_EMAIL, password='')
 
         errors = []
         updates = []
@@ -61,11 +64,11 @@ class Command(BaseCommand):
                 a.processing_status = Proposal.PROCESSING_STATUS_EXPIRED
                 a.save()
                 # update WLA internal_status and queue date
-                a.waiting_list_allocation.internal_status = 'waiting'
-                a.waiting_list_allocation.wla_queue_date = today
-                a.waiting_list_allocation.save()
+                # a.waiting_list_allocation.internal_status = 'waiting'
+                # a.waiting_list_allocation.wla_queue_date = today
+                # a.waiting_list_allocation.save()
                 # reset Waiting List order
-                a.waiting_list_allocation.set_wla_order()
+                # a.waiting_list_allocation.set_wla_order()
 
                 due_date = a.date_invited + timedelta(days=days_setting.number_of_days)
                 send_expire_mooring_licence_application_email(a, MooringLicenceApplication.REASON_FOR_EXPIRY_NOT_SUBMITTED, due_date)

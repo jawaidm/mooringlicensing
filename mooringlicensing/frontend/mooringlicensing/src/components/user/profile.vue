@@ -975,21 +975,23 @@ export default {
         },
         fetchProfile: async function(){
             let response = null;
-            //let submitter_id = 666;
             if (this.submitterId) {
-                console.log('submitterId')
                 response = await Vue.http.get(`${api_endpoints.submitter_profile}?submitter_id=${this.submitterId}`);
             } else {
-                console.log(api_endpoints.profile)
                 response = await Vue.http.get(api_endpoints.profile + '/' + this.proposalId);
             }
             this.profile = Object.assign(response.body);
-            if (this.profile.residential_address == null){ this.profile.residential_address = Object.assign({country:'AU'}); }
-            if (this.profile.postal_address == null){ this.profile.postal_address = Object.assign({}); }
-            if (this.profile.dob) { this.profile.dob = moment(this.profile.dob).format('DD/MM/YYYY'); }
+            if (this.profile.residential_address == null){
+                this.profile.residential_address = Object.assign({country:'AU'})
+            }
+            if (this.profile.postal_address == null){
+                this.profile.postal_address = Object.assign({})
+            }
+            if (this.profile.dob) {
+                this.profile.dob = moment(this.profile.dob).format('DD/MM/YYYY')
+            }
             this.phoneNumberReadonly = this.profile.phone_number === '' || this.profile.phone_number === null || this.profile.phone_number === 0 ?  false : true;
             this.mobileNumberReadonly = this.profile.mobile_number === '' || this.profile.mobile_number === null || this.profile.mobile_number === 0 ?  false : true;
-
         },
     },
     beforeRouteEnter: function(to,from,next){

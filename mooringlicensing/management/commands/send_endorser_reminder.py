@@ -5,7 +5,8 @@ from django.utils import timezone
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Q
-from ledger.accounts.models import EmailUser
+# from ledger.accounts.models import EmailUser
+from ledger_api_client.ledger_models import EmailUserRO
 
 import logging
 
@@ -24,9 +25,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
-            user = EmailUser.objects.get(email=settings.CRON_EMAIL)
+            # user = EmailUser.objects.get(email=settings.CRON_EMAIL)
+            user = EmailUserRO.objects.get(email=settings.CRON_EMAIL)
         except:
-            user = EmailUser.objects.create(email=settings.CRON_EMAIL, password='')
+            # user = EmailUser.objects.create(email=settings.CRON_EMAIL, password='')
+            user = EmailUserRO.objects.create(email=settings.CRON_EMAIL, password='')
 
         errors = []
         updates = []

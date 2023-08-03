@@ -194,11 +194,14 @@ class GetWlaAllowed(views.APIView):
         from mooringlicensing.components.proposals.models import WaitingListApplication
         wla_allowed = True
         # Person can have only one WLA, Waiting Liast application, Mooring Licence and Mooring Licence application
-        if (WaitingListApplication.objects.filter(submitter=request.user.id).exclude(processing_status__in=['approved', 'declined', 'discarded']) or
-            WaitingListAllocation.objects.filter(submitter=request.user.id).exclude(status__in=['cancelled', 'expired', 'surrendered']) or
-            MooringLicenceApplication.objects.filter(submitter=request.user.id).exclude(processing_status__in=['approved', 'declined', 'discarded']) or
-            MooringLicence.objects.filter(submitter=request.user.id).filter(status__in=['current', 'suspended'])):
+        rule1 = WaitingListApplication.get_intermediate_proposals(request.user.id)
+        rule2 = WaitingListAllocation.get_intermediate_approvals(request.user.id)
+        rule3 = MooringLicenceApplication.get_intermediate_proposals(request.user.id)
+        rule4 = MooringLicence.get_valid_approvals(request.user.id)
+
+        if rule1 or rule2 or rule3 or rule4:
             wla_allowed = False
+
         return Response({"wla_allowed": wla_allowed})
 
 
@@ -239,24 +242,29 @@ class ApprovalFilterBackend(DatatablesFilterBackend):
         total_count = queryset.count()
         filter_query = Q()
         # status filter
-        filter_status = request.GET.get('filter_status')
+        # filter_status = request.GET.get('filter_status')
+        filter_status = request.data.get('filter_status')
         if filter_status and not filter_status.lower() == 'all':
             filter_query &= Q(status=filter_status)
         # mooring bay filter
-        filter_mooring_bay_id = request.GET.get('filter_mooring_bay_id')
+        # filter_mooring_bay_id = request.GET.get('filter_mooring_bay_id')
+        filter_mooring_bay_id = request.data.get('filter_mooring_bay_id')
         if filter_mooring_bay_id and not filter_mooring_bay_id.lower() == 'all':
             filter_query &= Q(current_proposal__preferred_bay__id=filter_mooring_bay_id)
         # holder id filter
-        filter_holder_id = request.GET.get('filter_holder_id')
+        # filter_holder_id = request.GET.get('filter_holder_id')
+        filter_holder_id = request.data.get('filter_holder_id')
         if filter_holder_id and not filter_holder_id.lower() == 'all':
             filter_query &= Q(submitter__id=filter_holder_id)
         # max vessel length
-        max_vessel_length = request.GET.get('max_vessel_length')
+        # max_vessel_length = request.GET.get('max_vessel_length')
+        max_vessel_length = request.data.get('max_vessel_length')
         if max_vessel_length:
             filtered_ids = [a.id for a in Approval.objects.all() if a.current_proposal.vessel_details.vessel_applicable_length <= float(max_vessel_length)]
             filter_query &= Q(id__in=filtered_ids)
         # max vessel draft
-        max_vessel_draft = request.GET.get('max_vessel_draft')
+        # max_vessel_draft = request.GET.get('max_vessel_draft')
+        max_vessel_draft = request.data.get('max_vessel_draft')
         if max_vessel_draft:
             filter_query &= Q(current_proposal__vessel_details__vessel_draft__lte=float(max_vessel_draft))
 
@@ -265,7 +273,8 @@ class ApprovalFilterBackend(DatatablesFilterBackend):
         aap_list = AnnualAdmissionPermit.objects.all().exclude(current_proposal__processing_status=Proposal.PROCESSING_STATUS_DECLINED)
         wla_list = WaitingListAllocation.objects.all().exclude(current_proposal__processing_status=Proposal.PROCESSING_STATUS_DECLINED)
         # Filter by approval types (wla, aap, aup, ml)
-        filter_approval_type = request.GET.get('filter_approval_type')
+        # filter_approval_type = request.GET.get('filter_approval_type')
+        filter_approval_type = request.data.get('filter_approval_type')
         if filter_approval_type and not filter_approval_type.lower() == 'all':
             filter_approval_type_list = filter_approval_type.split(',')
             if 'wla' in filter_approval_type_list:
@@ -277,15 +286,18 @@ class ApprovalFilterBackend(DatatablesFilterBackend):
                         Q(mooringlicence__in=ml_list)
                         )
         # Show/Hide expired and/or surrendered
-        show_expired_surrendered = request.GET.get('show_expired_surrendered', 'true')
+        # show_expired_surrendered = request.GET.get('show_expired_surrendered', 'true')
+        show_expired_surrendered = request.data.get('show_expired_surrendered', 'true')
         show_expired_surrendered = True if show_expired_surrendered.lower() in ['true', 'yes', 't', 'y',] else False
-        external_waiting_list = request.GET.get('external_waiting_list')
+        # external_waiting_list = request.GET.get('external_waiting_list', 'false')
+        external_waiting_list = request.data.get('external_waiting_list', 'false')
         external_waiting_list = True if external_waiting_list.lower() in ['true', 'yes', 't', 'y',] else False
         if external_waiting_list and not show_expired_surrendered:
                 filter_query &= Q(status__in=(Approval.APPROVAL_STATUS_CURRENT, Approval.INTERNAL_STATUS_OFFERED))
 
         # approval types filter2 - Licences dash only (excludes wla)
-        filter_approval_type2 = request.GET.get('filter_approval_type2')
+        # filter_approval_type2 = request.GET.get('filter_approval_type2')
+        filter_approval_type2 = request.data.get('filter_approval_type2')
         if filter_approval_type2 and not filter_approval_type2.lower() == 'all':
             if filter_approval_type2 == 'ml':
                 filter_query &= Q(id__in=ml_list)
@@ -336,7 +348,8 @@ class ApprovalPaginatedViewSet(viewsets.ModelViewSet):
         request_user = self.request.user
         all = Approval.objects.all()  # We may need to exclude the approvals created from the Waiting List Application
 
-        target_email_user_id = int(self.request.GET.get('target_email_user_id', 0))
+        # target_email_user_id = int(self.request.GET.get('target_email_user_id', 0))
+        target_email_user_id = int(self.request.data.get('target_email_user_id', 0))
 
         if is_internal(self.request):
             if target_email_user_id:
@@ -347,6 +360,10 @@ class ApprovalPaginatedViewSet(viewsets.ModelViewSet):
             qs = all.filter(Q(submitter=request_user.id))
             return qs
         return Approval.objects.none()
+
+    @list_route(methods=['POST',], detail=False)
+    def list2(self, request, *args, **kwargs):
+        return self.list(request, *args, **kwargs)
 
     def list(self, request, *args, **kwargs):
         """
@@ -399,10 +416,9 @@ class ApprovalViewSet(viewsets.ModelViewSet):
     def existing_licences(self, request, *args, **kwargs):
         existing_licences = []
         l_list = Approval.objects.filter(
-                submitter=request.user.id,
-                #status__in=['current', 'fulfilled'],
-                status__in=['current'],
-                )
+            submitter=request.user.id,
+            status__in=[Approval.APPROVAL_STATUS_CURRENT,],
+        )
         for l in l_list:
             lchild = l.child_obj
             if type(lchild) == MooringLicence:
@@ -415,7 +431,8 @@ class ApprovalViewSet(viewsets.ModelViewSet):
                         "mooring_id": mooring.id,
                         "code": lchild.code,
                         "description": lchild.description,
-                        "new_application_text": "I want to amend or renew my current mooring site licence {}".format(lchild.lodgement_number)
+                        "new_application_text": "I want to amend or renew my current mooring site licence {}".format(lchild.lodgement_number),
+                        "new_application_text_add_vessel": "I want to add another vessel to my current mooring site licence {}".format(lchild.lodgement_number),
                         })
             else:
                 if lchild.approval.amend_or_renew:
@@ -567,154 +584,78 @@ class ApprovalViewSet(viewsets.ModelViewSet):
             return  Response( [dict(input_name=d.input_name, name=d.name,file=d._file.url, id=d.id, can_delete=d.can_delete) for d in instance.qaofficer_documents.filter(input_name=section, visible=True) if d._file] )
 
     @detail_route(methods=['POST',], detail=True)
+    @basic_exception_handler
     def approval_cancellation(self, request, *args, **kwargs):
-        try:
-            instance = self.get_object()
-            serializer = ApprovalCancellationSerializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            instance.approval_cancellation(request,serializer.validated_data)
-            return Response()
-        except serializers.ValidationError:
-            print(traceback.print_exc())
-            raise
-        except ValidationError as e:
-            if hasattr(e,'error_dict'):
-                raise serializers.ValidationError(repr(e.error_dict))
-            else:
-                if hasattr(e,'message'):
-                    raise serializers.ValidationError(e.message)
-        except Exception as e:
-            print(traceback.print_exc())
-            raise serializers.ValidationError(str(e))
+        instance = self.get_object()
+        serializer = ApprovalCancellationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        instance.approval_cancellation(request,serializer.validated_data)
+        return Response()
 
     @detail_route(methods=['POST',], detail=True)
+    @basic_exception_handler
     def approval_suspension(self, request, *args, **kwargs):
-        try:
-            instance = self.get_object()
-            serializer = ApprovalSuspensionSerializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            instance.approval_suspension(request,serializer.validated_data)
-            return Response()
-        except serializers.ValidationError:
-            print(traceback.print_exc())
-            raise
-        except ValidationError as e:
-            if hasattr(e,'error_dict'):
-                raise serializers.ValidationError(repr(e.error_dict))
-            else:
-                if hasattr(e,'message'):
-                    raise serializers.ValidationError(e.message)
-        except Exception as e:
-            print(traceback.print_exc())
-            raise serializers.ValidationError(str(e))
-
+        instance = self.get_object()
+        serializer = ApprovalSuspensionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        instance.approval_suspension(request,serializer.validated_data)
+        return Response()
 
     @detail_route(methods=['POST',], detail=True)
+    @basic_exception_handler
     def approval_reinstate(self, request, *args, **kwargs):
-        try:
-            instance = self.get_object()
-            instance.reinstate_approval(request)
-            return Response()
-        except serializers.ValidationError:
-            print(traceback.print_exc())
-            raise
-        except ValidationError as e:
-            if hasattr(e,'error_dict'):
-                raise serializers.ValidationError(repr(e.error_dict))
-            else:
-                if hasattr(e,'message'):
-                    raise serializers.ValidationError(e.message)
-        except Exception as e:
-            print(traceback.print_exc())
-            raise serializers.ValidationError(str(e))
+        instance = self.get_object()
+        instance.reinstate_approval(request)
+        return Response()
 
     @detail_route(methods=['POST',], detail=True)
+    @basic_exception_handler
     def approval_surrender(self, request, *args, **kwargs):
-        try:
-            instance = self.get_object()
-            serializer = ApprovalSurrenderSerializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            instance.approval_surrender(request,serializer.validated_data)
-            return Response()
-        except serializers.ValidationError:
-            print(traceback.print_exc())
-            raise
-        except ValidationError as e:
-            if hasattr(e,'error_dict'):
-                raise serializers.ValidationError(repr(e.error_dict))
-            else:
-                if hasattr(e,'message'):
-                    raise serializers.ValidationError(e.message)
-        except Exception as e:
-            print(traceback.print_exc())
-            raise serializers.ValidationError(str(e))
+        instance = self.get_object()
+        serializer = ApprovalSurrenderSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        instance.approval_surrender(request,serializer.validated_data)
+        return Response()
 
     @detail_route(methods=['GET',], detail=True)
+    @basic_exception_handler
     def action_log(self, request, *args, **kwargs):
-        try:
-            instance = self.get_object()
-            qs = instance.action_logs.all()
-            serializer = ApprovalUserActionSerializer(qs,many=True)
-            return Response(serializer.data)
-        except serializers.ValidationError:
-            print(traceback.print_exc())
-            raise
-        except ValidationError as e:
-            print(traceback.print_exc())
-            raise serializers.ValidationError(repr(e.error_dict))
-        except Exception as e:
-            print(traceback.print_exc())
-            raise serializers.ValidationError(str(e))
+        instance = self.get_object()
+        qs = instance.action_logs.all()
+        serializer = ApprovalUserActionSerializer(qs,many=True)
+        return Response(serializer.data)
 
     @detail_route(methods=['GET',], detail=True)
+    @basic_exception_handler
     def comms_log(self, request, *args, **kwargs):
-        try:
-            instance = self.get_object()
-            qs = instance.comms_logs.all()
-            serializer = ApprovalLogEntrySerializer(qs,many=True)
-            return Response(serializer.data)
-        except serializers.ValidationError:
-            print(traceback.print_exc())
-            raise
-        except ValidationError as e:
-            print(traceback.print_exc())
-            raise serializers.ValidationError(repr(e.error_dict))
-        except Exception as e:
-            print(traceback.print_exc())
-            raise serializers.ValidationError(str(e))
+        instance = self.get_object()
+        qs = instance.comms_logs.all()
+        serializer = ApprovalLogEntrySerializer(qs,many=True)
+        return Response(serializer.data)
 
     @detail_route(methods=['POST',], detail=True)
     @renderer_classes((JSONRenderer,))
+    @basic_exception_handler
     def add_comms_log(self, request, *args, **kwargs):
-        try:
-            with transaction.atomic():
-                instance = self.get_object()
-                mutable=request.data._mutable
-                request.data._mutable=True
-                request.data['approval'] = u'{}'.format(instance.id)
-                request.data['staff'] = u'{}'.format(request.user.id)
-                request.data._mutable=mutable
-                serializer = ApprovalLogEntrySerializer(data=request.data)
-                serializer.is_valid(raise_exception=True)
-                comms = serializer.save()
-                # Save the files
-                for f in request.FILES:
-                    document = comms.documents.create()
-                    document.name = str(request.FILES[f])
-                    document._file = request.FILES[f]
-                    document.save()
-                # End Save Documents
+        with transaction.atomic():
+            instance = self.get_object()
+            mutable=request.data._mutable
+            request.data._mutable=True
+            request.data['approval'] = u'{}'.format(instance.id)
+            request.data['staff'] = u'{}'.format(request.user.id)
+            request.data._mutable=mutable
+            serializer = ApprovalLogEntrySerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            comms = serializer.save()
+            # Save the files
+            for f in request.FILES:
+                document = comms.documents.create()
+                document.name = str(request.FILES[f])
+                document._file = request.FILES[f]
+                document.save()
+            # End Save Documents
 
-                return Response(serializer.data)
-        except serializers.ValidationError:
-            print(traceback.print_exc())
-            raise
-        except ValidationError as e:
-            print(traceback.print_exc())
-            raise serializers.ValidationError(repr(e.error_dict))
-        except Exception as e:
-            print(traceback.print_exc())
-            raise serializers.ValidationError(str(e))
+            return Response(serializer.data)
 
 
 class DcvAdmissionViewSet(viewsets.ModelViewSet):
@@ -1318,7 +1259,7 @@ class WaitingListAllocationViewSet(viewsets.ModelViewSet):
                     waiting_list_allocation=waiting_list_allocation,
                     date_invited=current_date,
                 )
-                logger.info(f'Mooring site licence application: [{new_proposal}] has been created from the waiting list allocation: [{waiting_list_allocation}].')
+                logger.info(f'New Mooring Site Licence application: [{new_proposal}] has been created from the waiting list allocation: [{waiting_list_allocation}].')
 
                 # Copy applicant details to the new proposal
                 proposal_applicant = ProposalApplicant.objects.get(proposal=waiting_list_allocation.current_proposal)

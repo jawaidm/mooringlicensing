@@ -16,6 +16,7 @@ def process_generic_document(request, instance, document_type=None, *args, **kwa
     logger.info(f'Processing document... Data: {request.data}')
     try:
         action = request.data.get('action')
+
         input_name = request.data.get('input_name')
         comms_log_id = request.data.get('comms_log_id')
         comms_instance = None
@@ -117,10 +118,13 @@ def delete_document(request, instance, comms_instance, document_type, input_name
 
     if document._file and os.path.isfile(
             document._file.path):
-        os.remove(document._file.path)
+        document_file_path = document._file.path
+        os.remove(document_file_path)
+        logger.info(f'Document: [{document_file_path}] has been removed from the filesystem.')
 
     if document:
         document.delete()
+        logger.info(f'Document: [{document}] has been removed from the application: [{instance}].')
 
 
 def cancel_document(request, instance, comms_instance, document_type, input_name=None):
@@ -152,6 +156,9 @@ def cancel_document(request, instance, comms_instance, document_type, input_name
 
 def save_document(request, instance, comms_instance, document_type, input_name=None):
     # example document_type
+    document = None
+    path = ''
+
     if 'filename' in request.data and input_name:
         filename = request.data.get('filename')
         _file = request.data.get('_file')
@@ -184,8 +191,6 @@ def save_document(request, instance, comms_instance, document_type, input_name=N
             document = instance.waiting_list_offer_documents.get_or_create(input_name=input_name, name=filename)[0]
             path_format_string = '{}/approvals/{}/waiting_list_offer_documents/{}'
         path = default_storage.save(path_format_string.format(settings.MEDIA_APP_DIR, instance.id, filename), ContentFile(_file.read()))
-        document._file = path
-        document.save()
 
     # comms_log doc store save
     elif comms_instance and 'filename' in request.data:
@@ -199,9 +204,6 @@ def save_document(request, instance, comms_instance, document_type, input_name=N
                 instance._meta.model_name, instance.id, comms_instance.id, filename), ContentFile(
                 _file.read()))
 
-        document._file = path
-        document.save()
-
     # default doc store save
     elif 'filename' in request.data:
         filename = request.data.get('filename')
@@ -214,8 +216,10 @@ def save_document(request, instance, comms_instance, document_type, input_name=N
                 instance._meta.model_name, instance.id, filename), ContentFile(
                 _file.read()))
 
+    if document and path:
         document._file = path
         document.save()
+        logger.info(f'Document: [{document}] has been saved for the proposal: [{instance}].')
 
 # For transferring files from temp doc objs to default doc objs
 def save_default_document_obj(instance, temp_document):

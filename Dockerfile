@@ -27,7 +27,7 @@ RUN apt-get update
 RUN apt-get upgrade -y
 RUN apt-get install --no-install-recommends -y curl wget git libmagic-dev gcc binutils libproj-dev gdal-bin python3 python3-setuptools python3-dev python3-pip tzdata cron rsyslog gunicorn
 RUN apt-get install --no-install-recommends -y libpq-dev patch libreoffice
-RUN apt-get install --no-install-recommends -y postgresql-client mtr htop vim npm
+RUN apt-get install --no-install-recommends -y postgresql-client mtr htop vim npm sudo
 RUN apt-get install --no-install-recommends -y bzip2
 RUN ln -s /usr/bin/python3 /usr/bin/python 
 RUN apt remove -y libnode-dev
@@ -41,33 +41,53 @@ RUN curl -fsSL https://deb.nodesource.com/setup_16.x -o install_node.sh
 RUN chmod +x install_node.sh && ./install_node.sh
 RUN apt-get install -y nodejs
 # Install nodejs
-
+COPY cron /etc/cron.d/dockercron
+COPY startup.sh pre_startup.sh /
+COPY ./timezone /etc/timezone
+RUN chmod 0644 /etc/cron.d/dockercron && \
+    crontab /etc/cron.d/dockercron && \
+    touch /var/log/cron.log && \
+    service cron start && \
+    chmod 755 /startup.sh && \
+    chmod +s /startup.sh && \
+    chmod 755 /pre_startup.sh && \
+    chmod +s /pre_startup.sh && \
+    groupadd -g 5000 oim && \
+    useradd -g 5000 -u 5000 oim -s /bin/bash -d /app && \
+    usermod -a -G sudo oim && \
+    echo "oim  ALL=(ALL)  NOPASSWD: /startup.sh" > /etc/sudoers.d/oim && \
+    mkdir /app && \
+    chown -R oim.oim /app && \
+    mkdir /container-config/ && \
+    chown -R oim.oim /container-config/ && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone && \
+    touch /app/rand_hash
+    
+RUN chmod 755 /pre_startup.sh 
 # Install Python libs from requirements.txt.
 FROM builder_base_mooringlicensing as python_libs_ml
 WORKDIR /app
-COPY requirements.txt ./
+USER oim
+RUN PATH=/app/.local/bin:$PATH
+COPY --chown=oim:oim requirements.txt ./
 
-RUN pip install --no-cache-dir -r requirements.txt \
+RUN pip install -r requirements.txt \
   && rm -rf /var/lib/{apt,dpkg,cache,log}/ /tmp/* /var/tmp/*
-
-#COPY libgeos.py.patch /app/
-#RUN patch /usr/local/lib/python3.8/dist-packages/django/contrib/gis/geos/libgeos.py /app/libgeos.py.patch
-#RUN rm /app/libgeos.py.patch
 
 # Install the project (ensure that frontend projects have been built prior to this step).
 FROM python_libs_ml
-COPY gunicorn.ini manage_ml.py ./
+COPY  --chown=oim:oim gunicorn.ini manage_ml.py ./
 #COPY timezone /etc/timezone
-RUN echo "Australia/Perth" > /etc/timezone
-ENV TZ=Australia/Perth
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+#RUN echo "Australia/Perth" > /etc/timezone
+#ENV TZ=Australia/Perth
+#RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 RUN touch /app/.env
-COPY .git ./.git
-COPY mooringlicensing ./mooringlicensing
-COPY patch_for_admin_0001_initial.patch ./patch_for_admin_0001_initial.patch
-COPY patch_for_admin_0001_initial.patch_revert ./patch_for_admin_0001_initial.patch_revert
-COPY patch_for_reversion_0001.patch ./patch_for_reversion_0001.patch
-COPY patch_for_reversion_0001.patch_revert ./patch_for_reversion_0001.patch_revert
+COPY  --chown=oim:oim .git ./.git
+COPY  --chown=oim:oim mooringlicensing ./mooringlicensing
+COPY  --chown=oim:oim patch_for_admin_0001_initial.patch ./patch_for_admin_0001_initial.patch
+COPY  --chown=oim:oim patch_for_admin_0001_initial.patch_revert ./patch_for_admin_0001_initial.patch_revert
+COPY  --chown=oim:oim patch_for_reversion_0001.patch ./patch_for_reversion_0001.patch
+COPY  --chown=oim:oim patch_for_reversion_0001.patch_revert ./patch_for_reversion_0001.patch_revert
 
 RUN cd /app/mooringlicensing/frontend/mooringlicensing/; npm install
 RUN cd /app/mooringlicensing/frontend/mooringlicensing/; npm run build
@@ -77,15 +97,15 @@ RUN python manage_ml.py collectstatic --noinput
 RUN mkdir /app/tmp/
 RUN chmod 777 /app/tmp/
 
-COPY cron /etc/cron.d/dockercron
-COPY startup.sh /
+#COPY cron /etc/cron.d/dockercron
+# COPY startup.sh pre_startup.sh /
 # Cron start
 #RUN service rsyslog start
-RUN chmod 0644 /etc/cron.d/dockercron
-RUN crontab /etc/cron.d/dockercron
-RUN touch /var/log/cron.log
-RUN service cron start
-RUN chmod 755 /startup.sh
+#RUN chmod 0644 /etc/cron.d/dockercron
+#RUN crontab /etc/cron.d/dockercron
+
+#RUN service cron start
+#RUN chmod 755 /startup.sh
 # cron end
 
 # IPYTHONDIR - Will allow shell_plus (in Docker) to remember history between sessions
@@ -94,8 +114,7 @@ RUN chmod 755 /startup.sh
 RUN mkdir /app/logs/.ipython
 RUN export IPYTHONDIR=/app/logs/.ipython/
 #RUN python profile create 
-
 EXPOSE 8080
 HEALTHCHECK --interval=1m --timeout=5s --start-period=10s --retries=3 CMD ["wget", "-q", "-O", "-", "http://localhost:8080/"]
-CMD ["/startup.sh"]
+CMD ["/pre_startup.sh"]
 

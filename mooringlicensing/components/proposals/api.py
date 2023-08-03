@@ -17,7 +17,7 @@ from rest_framework.response import Response
 from rest_framework.renderers import JSONRenderer
 from datetime import datetime
 # from ledger.settings_base import TIME_ZONE
-from ledger_api_client.settings_base import TIME_ZONE
+from ledger_api_client.settings_base import TIME_ZONE, LOGGING
 # from ledger.accounts.models import EmailUser, Address
 from ledger_api_client.ledger_models import EmailUserRO as EmailUser, Address
 from mooringlicensing import settings
@@ -82,7 +82,7 @@ from mooringlicensing.components.proposals.serializers import (
     MooringSerializer,
     VesselFullSerializer,
     VesselFullOwnershipSerializer,
-    ListMooringSerializer, SearchKeywordSerializer, SearchReferenceSerializer,
+    ListMooringSerializer, SearchKeywordSerializer, SearchReferenceSerializer
 )
 from mooringlicensing.components.approvals.models import Approval, DcvVessel, WaitingListAllocation, Sticker, \
     DcvOrganisation, AnnualAdmissionPermit, AuthorisedUserPermit, MooringLicence, VesselOwnershipOnApproval, \
@@ -115,7 +115,6 @@ from mooringlicensing.settings import PROPOSAL_TYPE_NEW, PROPOSAL_TYPE_AMENDMENT
     PAYMENT_SYSTEM_ID, BASE_DIR, MAKE_PRIVATE_MEDIA_FILENAME_NON_GUESSABLE
 
 logger = logging.getLogger(__name__)
-
 
 class GetDcvOrganisations(views.APIView):
     renderer_classes = [JSONRenderer, ]
@@ -225,16 +224,16 @@ class GetMooringPerBay(views.APIView):
                         ## restrict search results to suitable vessels
                         vessel_details = VesselDetails.objects.get(id=vessel_details_id)
                         mooring_filter = Q(
-                                Q(name__icontains=search_term) & 
-                                Q(mooring_bay__id=mooring_bay_id) & 
-                                Q(vessel_size_limit__gte=vessel_details.vessel_applicable_length) & 
-                                Q(vessel_draft_limit__gte=vessel_details.vessel_draft)
-                                )
-                        data = Mooring.available_moorings.filter(mooring_filter).values('id', 'name')[:10]
+                            Q(name__icontains=search_term) &
+                            Q(mooring_bay__id=mooring_bay_id) &
+                            Q(vessel_size_limit__gte=vessel_details.vessel_applicable_length) &
+                            Q(vessel_draft_limit__gte=vessel_details.vessel_draft)
+                        )
+                        data = Mooring.available_moorings.filter(mooring_filter, active=True).values('id', 'name', 'mooring_licence')[:10]
                     else:
-                        data = Mooring.available_moorings.filter(name__icontains=search_term, mooring_bay__id=mooring_bay_id).values('id', 'name')[:10]
+                        data = Mooring.available_moorings.filter(name__icontains=search_term, mooring_bay__id=mooring_bay_id, active=True).values('id', 'name', 'mooring_licence')[:10]
                 else:
-                    data = Mooring.available_moorings.filter(name__icontains=search_term).values('id', 'name')[:10]
+                    data = Mooring.available_moorings.filter(name__icontains=search_term, active=True).values('id', 'name', 'mooring_licence')[:10]
             else:
                 # aup
                 if mooring_bay_id:
@@ -245,18 +244,24 @@ class GetMooringPerBay(views.APIView):
                         ## restrict search results to suitable vessels
                         vessel_details = VesselDetails.objects.get(id=vessel_details_id)
                         mooring_filter = Q(
-                                Q(name__icontains=search_term) & 
-                                Q(mooring_bay__id=mooring_bay_id) &
-                                Q(vessel_size_limit__gte=vessel_details.vessel_applicable_length) & 
-                                Q(vessel_draft_limit__gte=vessel_details.vessel_draft) &
-                                ~Q(id__in=aup_mooring_ids)
-                                )
-                        data = Mooring.authorised_user_moorings.filter(mooring_filter).values('id', 'name')[:10]
+                            Q(name__icontains=search_term) &
+                            Q(mooring_bay__id=mooring_bay_id) &
+                            Q(vessel_size_limit__gte=vessel_details.vessel_applicable_length) &
+                            Q(vessel_draft_limit__gte=vessel_details.vessel_draft) &
+                            ~Q(id__in=aup_mooring_ids)
+                        )
+                        data = Mooring.authorised_user_moorings.filter(mooring_filter, active=True).values('id', 'name', 'mooring_licence')[:10]
                     else:
                         data = []
                 else:
-                    data = Mooring.private_moorings.filter(name__icontains=search_term).values('id', 'name')[:10]
-            data_transform = [{'id': mooring['id'], 'text': mooring['name']} for mooring in data]
+                    data = Mooring.private_moorings.filter(name__icontains=search_term, active=True).values('id', 'name', 'mooring_licence')[:10]
+            # data_transform = [{'id': mooring['id'], 'text': mooring['name']} for mooring in data]
+            data_transform = []
+            for mooring in data:
+                if 'mooring_licence' in mooring and mooring['mooring_licence']:
+                    data_transform.append({'id': mooring['id'], 'text': mooring['name'] + ' (licensed)'})
+                else:
+                    data_transform.append({'id': mooring['id'], 'text': mooring['name'] + ' (unlicensed)'})
             return Response({"results": data_transform})
         return Response()
 
@@ -738,11 +743,19 @@ class ProposalByUuidViewSet(viewsets.ModelViewSet):
         # Make sure the submitter is the same as the applicant.
         is_authorised_to_modify(request, instance)
 
-        if not instance.mooring_report_documents.count() \
-                or not instance.written_proof_documents.count()\
-                or not instance.signed_licence_agreement_documents.count() \
-                or not instance.proof_of_identity_documents.count():  # Documents missing
-            raise
+        errors = []
+        if not instance.mooring_report_documents.count():
+            errors.append('Copy of current mooring report')
+        if not instance.written_proof_documents.count():
+            errors.append('Proof of finalized ownership of mooring apparatus')
+        if not instance.signed_licence_agreement_documents.count():
+            errors.append('Signed licence agreement')
+        if not instance.proof_of_identity_documents.count():
+            errors.append('Proof of identity')
+
+        if errors:
+            errors.insert(0, 'Please attach:')
+            raise serializers.ValidationError(errors)
 
         instance.process_after_submit_other_documents(request)
         return Response()
@@ -753,7 +766,19 @@ class ProposalViewSet(viewsets.ModelViewSet):
     serializer_class = ProposalSerializer
     lookup_field = 'id'
 
+    def get_object(self):
+        logger.info(f'Getting object in the ProposalViewSet...')
+        # obj = super(ProposalViewSet, self).get_object()
+        if self.kwargs.get('id').isnumeric():
+            obj = super(ProposalViewSet, self).get_object()
+        else:
+            uuid = self.kwargs.get('id')
+            obj = AuthorisedUserApplication.objects.get(uuid=uuid)
+            obj = obj.proposal
+        return obj
+
     def get_queryset(self):
+        logger.info(f'Getting queryset in the ProposalViewSet...')
         request_user = self.request.user
         if is_internal(self.request):
             qs = Proposal.objects.all()
@@ -761,13 +786,32 @@ class ProposalViewSet(viewsets.ModelViewSet):
         elif is_customer(self.request):
             # user_orgs = [org.id for org in request_user.mooringlicensing_organisations.all()]
             # queryset = Proposal.objects.filter(Q(org_applicant_id__in=user_orgs) | Q(submitter=request_user.id) | Q(site_licensee_email=request_user.email))
-            user_orgs = []  # TODO array of organisations' id for this user
+            user_orgs = [org.id for org in Organisation.objects.filter(delegates__contains=[self.request.user.id])]
             queryset = Proposal.objects.filter(
                 Q(org_applicant_id__in=user_orgs) | Q(submitter=request_user.id)
             ).exclude(migrated=True)
+
+            # For the endoser to view the endosee's proposal
+            if 'uuid' in self.request.query_params:
+                uuid = self.request.query_params.get('uuid', '')
+                if uuid:
+                    au_obj = AuthorisedUserApplication.objects.filter(uuid=uuid)  # ML also has a uuid field.
+                    if au_obj:
+                        pro = Proposal.objects.filter(id=au_obj.first().id)
+                        # Add the above proposal to the queryset the accessing user can access to
+                        queryset = queryset | pro
             return queryset
         logger.warning("User is neither customer nor internal user: {} <{}>".format(request_user.get_full_name(), request_user.email))
         return Proposal.objects.none()
+
+    # def retrieve(self, request, *args, **kwargs):
+    #     try:
+    #         temp = super(ProposalViewSet, self).retrieve(request, *args)
+    #         return temp
+    #     except Exception as e:
+    #         uuid = kwargs.get('id')
+    #         proposal = AuthorisedUserApplication.objects.get(uuid=uuid)
+    #         return Response(self.serializer_class(proposal.proposal).data)
 
     def internal_serializer_class(self):
        try:
@@ -1097,24 +1141,17 @@ class ProposalViewSet(viewsets.ModelViewSet):
         }
         existing_proposal_qs=Proposal.objects.filter(**renew_amend_conditions)
         if (existing_proposal_qs and 
-                existing_proposal_qs[0].customer_status in ['under_review', 'with_assessor', 'draft'] and
-                existing_proposal_qs[0].proposal_type in ProposalType.objects.filter(code__in=[PROPOSAL_TYPE_AMENDMENT, PROPOSAL_TYPE_RENEWAL])
-                ):
+            existing_proposal_qs[0].customer_status in [Proposal.CUSTOMER_STATUS_WITH_ASSESSOR, Proposal.CUSTOMER_STATUS_DRAFT,] and
+            existing_proposal_qs[0].proposal_type in ProposalType.objects.filter(code__in=[PROPOSAL_TYPE_AMENDMENT, PROPOSAL_TYPE_RENEWAL,])
+        ):
             raise ValidationError('A renewal/amendment for this licence has already been lodged.')
         elif not approval or not approval.amend_or_renew:
             raise ValidationError('No licence available for renewal/amendment.')
         ## create renewal or amendment
-        if settings.DEBUG and request.GET.get('debug', '') == 'true' and request.GET.get('type', '') == 'renew':
-            # This is used just for debug
+        if approval and approval.amend_or_renew == 'renew':
             instance = instance.renew_approval(request)
-        elif settings.DEBUG and request.GET.get('debug', '') == 'true' and request.GET.get('type', '') == 'amend':
-            # This is used just for debug
+        elif approval and approval.amend_or_renew == 'amend':
             instance = instance.amend_approval(request)
-        else:
-            if approval and approval.amend_or_renew == 'renew':
-                instance = instance.renew_approval(request)
-            elif approval and approval.amend_or_renew == 'amend':
-                instance = instance.amend_approval(request)
         ## return new application
         #serializer = ProposalSerializer(instance,context={'request':request})
         #serializer_class = self.internal_serializer_class()
@@ -1193,7 +1230,7 @@ class ProposalViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             instance = self.get_object()
 
-            logger.info(f'Proposal: {instance} has been submitted by the user: {request.user}.')
+            logger.info(f'Proposal: [{instance}] has been submitted by the user: [{request.user}].')
 
             # Ensure status is draft and submitter is same as applicant.
             is_authorised_to_modify(request, instance)
@@ -1207,7 +1244,7 @@ class ProposalViewSet(viewsets.ModelViewSet):
             from mooringlicensing.components.payments_ml.models import FeeConstructor
 
             proposal = self.get_object()
-            max_length = 0
+            logger.info(f'Calculating the max vessel length for the main component without any additional cost for the Proposal: [{proposal}]...')
 
             ### test
             max_vessel_length = (0, True)  # (length, include_length)
@@ -1241,7 +1278,7 @@ class ProposalViewSet(viewsets.ModelViewSet):
                         get_out_of_loop = True
 
             res = {'max_length': max_vessel_length[0], 'include_max_length': max_vessel_length[1]}
-            logger.info(f'max_vessel_length_for_main_component: {res}')
+            logger.info(f'Max vessel length for the main component without any additional cost is [{res}].')
 
             return Response(res)
             ###
@@ -1269,6 +1306,8 @@ class ProposalViewSet(viewsets.ModelViewSet):
             from mooringlicensing.components.main.models import ApplicationType
 
             proposal = self.get_object()
+            logger.info(f'Calculating the max vessel length for the AA component without any additional cost for the Proposal: [{proposal}]...')
+
             current_datetime = datetime.now(pytz.timezone(TIME_ZONE))
             target_date = proposal.get_target_date(current_datetime.date())
 
@@ -1281,10 +1320,11 @@ class ProposalViewSet(viewsets.ModelViewSet):
             application_type_aa = ApplicationType.objects.get(code=AnnualAdmissionApplication.code)
             fee_constructor = FeeConstructor.get_fee_constructor_by_application_type_and_date(application_type_aa, target_date)
             max_length = calculate_max_length(fee_constructor, max_amount_paid, proposal.proposal_type)
+            res = {'max_length': max_length}
 
-            logger.info(f'max_vessel_length_for_aa_component: {max_length}')
+            logger.info(f'Max vessel length for the AA component without any additional cost is [{res}].')
 
-            return Response({'max_length': max_length})
+            return Response(res)
 
         except Exception as e:
             print(traceback.print_exc())
@@ -1381,11 +1421,12 @@ class ProposalViewSet(viewsets.ModelViewSet):
         instance.save()
         ## ML
         if type(instance.child_obj) == MooringLicenceApplication and instance.waiting_list_allocation:
-            instance.waiting_list_allocation.internal_status = 'waiting'
-            current_datetime = datetime.now(pytz.timezone(TIME_ZONE))
-            instance.waiting_list_allocation.wla_queue_date = current_datetime
-            instance.waiting_list_allocation.save()
-            instance.waiting_list_allocation.set_wla_order()
+            pass
+            # instance.waiting_list_allocation.internal_status = 'waiting'
+            # current_datetime = datetime.now(pytz.timezone(TIME_ZONE))
+            # instance.waiting_list_allocation.wla_queue_date = current_datetime
+            # instance.waiting_list_allocation.save()
+            # instance.waiting_list_allocation.set_wla_order()
         return Response()
 
     @detail_route(methods=['POST',], detail=True)
@@ -1651,6 +1692,27 @@ class ProposalStandardRequirementViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data)
 
 
+# class BackToAssessorViewSet(viewsets.ModelViewSet):
+#     queryset = BackToAssessor.objects.all()
+#     serializer_class = BackToAssessorSerializer
+#
+#     @basic_exception_handler
+#     def create(self, request, *args, **kwargs):
+#         data = request.data
+#         details = request.data.get('details')
+#         proposal = request.data.get('proposal')
+#         data['details'] = details
+#         data['proposal'] = proposal['id']
+#
+#         serializer = self.get_serializer(data=data)
+#         serializer.is_valid(raise_exception = True)
+#         instance = serializer.save()
+#
+#         instance.generate_amendment(request)
+#         serializer = self.get_serializer(instance)
+#
+#         return Response(serializer.data)
+
 class AmendmentRequestViewSet(viewsets.ModelViewSet):
     queryset = AmendmentRequest.objects.all()
     serializer_class = AmendmentRequestSerializer
@@ -1659,14 +1721,15 @@ class AmendmentRequestViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         data = request.data
         reason_id = request.data.get('reason_id')
-        # proposal = request.data.get('proposal', None)
         proposal = request.data.get('proposal')
         data['reason'] = reason_id
         data['proposal'] = proposal['id']
-        # data['proposal'] = proposal_id
+
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception = True)
         instance = serializer.save()
+        logger.info(f'New AmendmentRequest: [{instance}] has been created.')
+
         instance.generate_amendment(request)
         serializer = self.get_serializer(instance)
         return Response(serializer.data)

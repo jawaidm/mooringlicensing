@@ -167,6 +167,12 @@ export default {
             type: String,
             //default: ''
         },
+        mooringBays: {
+            type: Array,
+        },
+        siteLicenseeMooring: {
+            type: Object,
+        }
     },
     /*
     watch: {
@@ -210,8 +216,8 @@ export default {
                 allowInputToggle:true
             },
             warningString: 'Please attach Level of Approval document before issuing Approval',
-            siteLicenseeMooring: {},
-            mooringBays: [],
+            // siteLicenseeMooring: {},
+            // mooringBays: [],
             mooringsTableId: 'moorings_table' + vm._uid,
             vesselsTableId: 'vessels_table' + vm._uid,
             mooringsDtHeaders: [
@@ -560,17 +566,19 @@ export default {
             $('.has-error').removeClass('has-error');
             this.validation_form.resetForm();
         },
-        fetchMooringBays: async function() {
-            //const res = await this.$http.get(api_endpoints.mooring_bays);
-            const res = await this.$http.get(api_endpoints.mooring_bays_lookup);
-            for (let bay of res.body) {
-                this.mooringBays.push(bay)
-            }
-        },
-        fetchSiteLicenseeMooring: async function() {
-            const res = await this.$http.get(`${api_endpoints.mooring}${this.proposal.mooring_id}`);
-            this.siteLicenseeMooring = Object.assign({}, res.body);
-        },
+        // fetchMooringBays: async function() {
+        //     console.log('%cin fetchMooringBays', 'color:#f33;')
+        //     //const res = await this.$http.get(api_endpoints.mooring_bays);
+        //     const res = await this.$http.get(api_endpoints.mooring_bays_lookup);
+        //     console.log(res.body)
+        //     for (let bay of res.body) {
+        //         this.mooringBays.push(bay)
+        //     }
+        // },
+        // fetchSiteLicenseeMooring: async function() {
+        //     const res = await this.$http.get(`${api_endpoints.mooring}${this.proposal.mooring_id}`);
+        //     this.siteLicenseeMooring = Object.assign({}, res.body);
+        // },
 
         fetchContact: function(id){
             let vm = this;
@@ -581,6 +589,7 @@ export default {
             } );
         },
         sendData:function(){
+            console.log('%cin sendData', 'color: #c33;')
             let vm = this;
             vm.errors = false;
             this.$nextTick(()=>{
@@ -792,6 +801,7 @@ export default {
            */
        },
        initialiseMooringLookup: function(){
+            console.log('%cin initialiseMooringLookup', 'color:#f33;')
             let vm = this;
             $(vm.$refs.mooring_lookup).select2({
                 minimumInputLength: 2,
@@ -810,20 +820,24 @@ export default {
                             vessel_details_id: vm.proposal.vessel_details_id,
                             aup_id: vm.proposal.approval_id,
                         }
+                        console.log('in data()')
                         return query;
                     },
                 },
             }).
             on("select2:select", function (e) {
+                console.log('in select2:select')
                 var selected = $(e.currentTarget);
                 let data = e.params.data.id;
                 vm.approval.mooring_id = data;
             }).
             on("select2:unselect",function (e) {
+                console.log('in select2:unselect')
                 var selected = $(e.currentTarget);
                 vm.approval.mooring_id = null;
             }).
             on("select2:open",function (e) {
+                console.log('in select2:open')
                 //const searchField = $(".select2-search__field")
                 const searchField = $('[aria-controls="select2-mooring_lookup-results"]')
                 // move focus to select2 field
@@ -836,14 +850,17 @@ export default {
             });
         },
         readRiaMooring: function() {
+            console.log('%cin readRiaMooring', 'color:#f33;')
+            console.log('%cvm.approval.ria_mooring_name: ' + this.approval.ria_mooring_name, 'color: #f33;')
             let vm = this;
             if (vm.approval.ria_mooring_name) {
                 console.log("read ria mooring")
                 var option = new Option(vm.approval.ria_mooring_name, vm.approval.ria_mooring_name, true, true);
                 $(vm.$refs.mooring_lookup).append(option).trigger('change');
+            } else {
+
             }
         },
-
     },
     mounted:function () {
         let vm =this;
@@ -870,9 +887,9 @@ export default {
     },
     created: function() {
         this.$nextTick(()=>{
-            this.fetchMooringBays();
+            // this.fetchMooringBays();
             if (this.siteLicensee) {
-                this.fetchSiteLicenseeMooring();
+                // this.fetchSiteLicenseeMooring();
             }
         });
     },
