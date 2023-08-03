@@ -12,6 +12,7 @@ tmp/*
 csv*
 #mooringlicensing/utils/lotus_notes/*
 mooringlicensing/utils/tests
+mooringlicensing/utils/archive
 .ropeproject/
 
 # Byte-compiled / optimized / DLL files

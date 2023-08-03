@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand
 from django.conf import settings
-from mooringlicensing.utils.mooring_licence_migrate_pd import MooringLicenceReader
+from mooringlicensing.utils.ml_migrate import MooringLicenceReader
 import time
 
 import logging
@@ -8,8 +8,7 @@ logger = logging.getLogger(__name__)
 
 class Command(BaseCommand):
     help = 'Run the MooringLicensing Migration Script \n' \
-           'python manage_ml.py ml_migration_script --path shared/clean/clean_22Dec2022/ \n' \
-           'python ./manage_ml.py ml_migration_script --path mooringlicensing/utils/csv/clean/'
+           'python manage_ml.py ml_migration_script --path shared/clean/'
 
     def add_arguments(self, parser):
         parser.add_argument('--path', type=str)
@@ -18,7 +17,7 @@ class Command(BaseCommand):
         path = options['path']
         t_start = time.time()
 
-        mlr=MooringLicenceReader('PersonDets.txt', 'MooringDets.txt', 'VesselDets.txt', 'UserDets.txt', 'ApplicationDets.txt','annual_admissions_booking_report.csv', path='shared/clean/clean_22Dec2022/')
+        mlr=MooringLicenceReader('PersonDets.txt', 'MooringDets.txt', 'VesselDets.txt', 'UserDets.txt', 'ApplicationDets.txt','annual_admissions_booking_report.csv', path=path)
 
         mlr.create_users()
         mlr.create_vessels()
