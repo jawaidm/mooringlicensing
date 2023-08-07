@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 class Command(BaseCommand):
     help = 'Run the MooringLicensing Migration Script \n' \
-           'python manage_ml.py ml_migration_script --path shared/clean/'
+           'python manage_ml.py ml_migration_script --path shared/utils/csv/clean/'
 
     def add_arguments(self, parser):
         parser.add_argument('--path', type=str)

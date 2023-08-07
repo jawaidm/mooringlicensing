@@ -233,6 +233,7 @@ class MooringLicenceReader():
         
     FROM shell_plus:
         pip install tqdm==4.64.1 pandas==1.4.2 ipdb
+        ./manage_ml.py loaddata shared/mooring.json
         from mooringlicensing.utils.ml_migrate import MooringLicenceReader
         mlr=MooringLicenceReader('PersonDets.txt', 'MooringDets.txt', 'VesselDets.txt', 'UserDets.txt', 'ApplicationDets.txt', 'annual_admissions_booking_report.csv')
 
@@ -610,8 +611,8 @@ class MooringLicenceReader():
                 val = 0.00
             return val
 
-        print(f'Deleting existing Vessels ...')
-        Vessel.objects.all().delete() 
+        #print(f'Deleting existing Vessels ...')
+        #Vessel.objects.all().delete() 
 
         self.vessels_au = {} 
         self.vessels_an = {} 
@@ -1484,7 +1485,7 @@ class MooringLicenceReader():
                     start_date = datetime.datetime.strptime(date_applied, '%Y-%m-%d').astimezone(datetime.timezone.utc)
 
             except Exception as e:
-                #errors.append(str(e))
+                logger.error(str(e))
                 errors.append(row.pers_no)
                 #import ipdb; ipdb.set_trace()
                 pass
